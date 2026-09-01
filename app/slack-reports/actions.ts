@@ -11,7 +11,10 @@ type ActionResult = { ok: boolean; message: string };
  *  Actions runner. Mirrors triggerOwnerPull() in app/admin/actions.ts. */
 async function dispatchRunOnce(reportKey: string, testMode: boolean): Promise<ActionResult> {
   const token = process.env.GH_DISPATCH_TOKEN;
-  const repo = process.env.GH_REPO ?? "salesops-lab/sdr-outreach-dashboard";
+  // Repo was renamed from sdr-outreach-dashboard → sales-outreach-dashboard; this hardcoded
+  // fallback still pointed at the old name, so every dispatch 404'd against a repo this token
+  // has no access to and "Run Now"/"Send Test" silently failed with no image ever generated.
+  const repo = process.env.GH_REPO ?? "salesops-lab/sales-outreach-dashboard";
   if (!token) return { ok: false, message: "GH_DISPATCH_TOKEN is not configured — cannot dispatch a run." };
   try {
     const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/slack-reports-run-once.yml/dispatches`, {
@@ -25,7 +28,8 @@ async function dispatchRunOnce(reportKey: string, testMode: boolean): Promise<Ac
       body: JSON.stringify({ ref: "main", inputs: { report_key: reportKey, test_mode: String(testMode) } }),
     });
     if (res.status === 204) return { ok: true, message: "✓ Dispatched — check Slack in about a minute." };
-    return { ok: false, message: `Dispatch failed (HTTP ${res.status}).` };
+    const detail = await res.text().catch(() => "");
+    return { ok: false, message: `Dispatch to ${repo} failed (HTTP ${res.status})${detail ? `: ${detail}` : ""}.` };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) };
   }
