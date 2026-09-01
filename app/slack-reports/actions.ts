@@ -2,36 +2,49 @@
 
 import { requireAdmin } from "../../lib/access/requireAdmin";
 import { getSlackReport } from "../../config/slack-reports";
-import { runOneReport } from "../../lib/slackReports/scheduler";
 
 type ActionResult = { ok: boolean; message: string };
 
-export async function sendTestReport(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+/** Dispatches slack-reports-run-once.yml rather than rendering inline — the report image needs a
+ *  real headless Chromium (Playwright), which is a poor fit for a Vercel serverless function
+ *  (cold-start size/time, memory limits on a Hobby plan) but a comfortable fit for a GitHub
+ *  Actions runner. Mirrors triggerOwnerPull() in app/admin/actions.ts. */
+async function dispatchRunOnce(reportKey: string, testMode: boolean): Promise<ActionResult> {
+  const token = process.env.GH_DISPATCH_TOKEN;
+  // Repo was renamed from sdr-outreach-dashboard → sales-outreach-dashboard; this hardcoded
+  // fallback still pointed at the old name, so every dispatch 404'd against a repo this token
+  // has no access to and "Run Now"/"Send Test" silently failed with no image ever generated.
+  const repo = process.env.GH_REPO ?? "salesops-lab/sales-outreach-dashboard";
+  if (!token) return { ok: false, message: "GH_DISPATCH_TOKEN is not configured — cannot dispatch a run." };
   try {
-    await requireAdmin();
-    const key = String(formData.get("key") ?? "");
-    const report = getSlackReport(key);
-    if (!report) return { ok: false, message: "Unknown report." };
-    const result = await runOneReport(report, { test: true });
-    return result.ok
-      ? { ok: true, message: `✓ Test report sent to ${report.channelLabel}.` }
-      : { ok: false, message: `Test send failed: ${result.error}` };
+    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/slack-reports-run-once.yml/dispatches`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ref: "main", inputs: { report_key: reportKey, test_mode: String(testMode) } }),
+    });
+    if (res.status === 204) return { ok: true, message: "✓ Dispatched — check Slack in about a minute." };
+    const detail = await res.text().catch(() => "");
+    return { ok: false, message: `Dispatch to ${repo} failed (HTTP ${res.status})${detail ? `: ${detail}` : ""}.` };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) };
   }
 }
 
+export async function sendTestReport(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireAdmin();
+  const key = String(formData.get("key") ?? "");
+  if (!getSlackReport(key)) return { ok: false, message: "Unknown report." };
+  return dispatchRunOnce(key, true);
+}
+
 export async function runReportNow(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
-  try {
-    await requireAdmin();
-    const key = String(formData.get("key") ?? "");
-    const report = getSlackReport(key);
-    if (!report) return { ok: false, message: "Unknown report." };
-    const result = await runOneReport(report, { test: false });
-    return result.ok
-      ? { ok: true, message: `✓ Report sent to ${report.channelLabel}.` }
-      : { ok: false, message: `Run failed: ${result.error}` };
-  } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : String(e) };
-  }
+  await requireAdmin();
+  const key = String(formData.get("key") ?? "");
+  if (!getSlackReport(key)) return { ok: false, message: "Unknown report." };
+  return dispatchRunOnce(key, false);
 }

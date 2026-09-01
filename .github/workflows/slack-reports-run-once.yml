@@ -1,0 +1,34 @@
+name: Slack report — run once
+# Ad-hoc single-report fire for the "Run Now" / "Send Test" buttons in /slack-reports, dispatched
+# via the GitHub API (same pattern as triggerOwnerPull() in app/admin/actions.ts). Rendering the
+# report needs a real headless Chromium (Playwright) — a full GitHub Actions VM handles that far
+# more comfortably than a Vercel serverless function would.
+on:
+  workflow_dispatch:
+    inputs:
+      report_key:
+        description: "config/slack-reports.ts entry key to run"
+        required: true
+      test_mode:
+        description: "true = send a marked TEST image, false = a real send"
+        required: false
+        default: "false"
+permissions:
+  contents: read
+jobs:
+  run-once:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run slack-reports:run-once
+        env:
+          REPORT_KEY: ${{ github.event.inputs.report_key }}
+          TEST_MODE: ${{ github.event.inputs.test_mode }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}

@@ -23,7 +23,7 @@
     "embed:content": "tsx --conditions=react-server scripts/embed-content.ts",
     "intel:signals": "tsx --conditions=react-server scripts/intel-signals.ts",
     "content:backfill": "tsx --conditions=react-server scripts/content-backfill.ts",
-    "slack-reports:run": "tsx --conditions=react-server scripts/slack-reports-run.ts",
+    "slack-reports:run-once": "tsx --conditions=react-server scripts/slack-reports-run-once.ts",
     "test": "vitest run"
   },
   "dependencies": {
@@ -46,6 +46,7 @@
     "dotenv": "^16.4.5",
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.35",
+    "playwright": "1.56.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "tsx": "^4.19.2",

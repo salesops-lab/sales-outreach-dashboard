@@ -14,6 +14,9 @@ import { buildCallBlitzReport, CallBlitzReport } from "./callBlitz";
 
 export interface AssembleInput {
   managerKey: string;
+  /** Roster display names (case-insensitive) to leave out of the report entirely — row AND
+   *  totals. Applied before any data is loaded, so an excluded rep's activity is never folded in. */
+  excludeOwnerNames?: string[];
 }
 
 export async function assembleCallBlitzReport(input: AssembleInput, nowMs = Date.now()): Promise<CallBlitzReport> {
@@ -22,8 +25,10 @@ export async function assembleCallBlitzReport(input: AssembleInput, nowMs = Date
   const reportDateEt = ctx.windowEndDate;
 
   const ts = await loadTeamStructure();
-  const ownerIds = sdrOwnersUnderManager(ts, input.managerKey);
   const names = nameMap(ts);
+  const excluded = new Set((input.excludeOwnerNames ?? []).map((n) => n.trim().toLowerCase()));
+  const ownerIds = sdrOwnersUnderManager(ts, input.managerKey)
+    .filter((id) => !excluded.has((names[id] ?? "").trim().toLowerCase()));
   const teamName = ts.managers[input.managerKey]?.name ?? input.managerKey;
 
   if (ownerIds.length === 0) {
