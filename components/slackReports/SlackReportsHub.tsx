@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { Radio } from "lucide-react";
 import { sendTestReport, runReportNow } from "../../app/slack-reports/actions";
-import { Chip, Surface } from "../ui";
+import { Surface } from "../ui";
 import { SlackReportConfig } from "../../config/slack-reports";
 import { CallBlitzReport } from "../../lib/slackReports/callBlitz";
 import PreviewTable from "./PreviewTable";
@@ -12,16 +12,6 @@ import PreviewTable from "./PreviewTable";
 type ActionResult = { ok: boolean; message: string } | null;
 
 const REPORT_TYPE_LABEL: Record<string, string> = { call_blitz: "Call Blitz Report" };
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function fmtSchedule(r: SlackReportConfig): string {
-  const days = [...r.schedule.daysOfWeek].sort();
-  const daysStr = days.length === 7 ? "Every day"
-    : JSON.stringify(days) === JSON.stringify([1, 2, 3, 4, 5]) ? "Mon–Fri"
-    : days.map((d) => DAY_LABELS[d]).join(", ");
-  const times = [r.schedule.time1, r.schedule.time2].filter(Boolean).join(" · ");
-  return `${daysStr} · ${times}`;
-}
 
 function SmallSubmit({ label }: { label: string }) {
   const { pending } = useFormStatus();
@@ -54,7 +44,7 @@ function ReportCard({ report }: { report: SlackReportConfig }) {
     if (!next || preview || loading) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/slack-reports/preview?managerKey=${encodeURIComponent(report.managerKey)}`);
+      const res = await fetch(`/api/slack-reports/preview?key=${encodeURIComponent(report.key)}`);
       const data = await res.json();
       setPreview(data.error ? null : data);
     } catch {
@@ -71,13 +61,10 @@ function ReportCard({ report }: { report: SlackReportConfig }) {
           <div className="flex items-center gap-2">
             <Radio className="h-4 w-4 text-primary" strokeWidth={2.4} />
             <h3 className="font-semibold text-ink">{report.name}</h3>
-            <Chip tone={report.enabled ? "good" : "neutral"}>{report.enabled ? "● Active" : "○ Disabled"}</Chip>
           </div>
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-ink-muted">
             <dt>Type</dt><dd>{REPORT_TYPE_LABEL[report.reportType] ?? report.reportType}</dd>
             <dt>Channel</dt><dd>{report.channelLabel}</dd>
-            <dt>Schedule</dt><dd>{fmtSchedule(report)}</dd>
-            <dt>Timezone</dt><dd>{report.timezone}</dd>
           </dl>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -102,7 +89,7 @@ function ReportCard({ report }: { report: SlackReportConfig }) {
 export default function SlackReportsHub({ reports }: { reports: SlackReportConfig[] }) {
   return (
     <div className="grid gap-6">
-      <h2 className="text-sm font-bold uppercase tracking-wide text-ink-subtle">Active Reports</h2>
+      <h2 className="text-sm font-bold uppercase tracking-wide text-ink-subtle">Reports</h2>
 
       {reports.length === 0 ? (
         <Surface className="p-10 text-center">
@@ -120,9 +107,12 @@ export default function SlackReportsHub({ reports }: { reports: SlackReportConfi
       <Surface className="p-4">
         <h3 className="mb-1 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-subtle">Slack Connections</h3>
         <p className="text-xs text-ink-muted">
-          Reports and their Slack channels are configured in <code>config/slack-reports.ts</code>. Each
-          entry names a server-side env var (e.g. <code>SLACK_VAIBHAV_WEBHOOK</code>) that holds the
-          webhook URL — the URL itself never lives in code, a database, or the browser.
+          Reports and their Slack channels are configured in <code>config/slack-reports.ts</code> (a
+          channel label + channel ID per report). Delivery is an image posted via a single shared
+          Slack bot token (<code>SLACK_BOT_TOKEN</code>) — the token itself never lives in code, a
+          database, or the browser. Run Now / Send Test dispatch a GitHub Actions run, so results
+          appear in Slack within about a minute rather than instantly. There is no automatic
+          schedule — reports are sent only when you click Run Now.
         </p>
       </Surface>
     </div>
