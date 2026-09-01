@@ -1,6 +1,5 @@
 /** Shared admin guard for server actions — re-derives the session on every call (not just page
- *  load), so a stale action reference can't bypass the gate. Used by both /admin and
- *  /slack-reports server actions. */
+ *  load), so a stale action reference can't bypass the gate. Used by /admin server actions. */
 import { supabaseServer } from "../supabase/server";
 import { resolveViewer } from "./resolve";
 

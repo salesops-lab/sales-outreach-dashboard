@@ -545,11 +545,6 @@ create table if not exists sdr_roster (
 create index if not exists idx_sdr_roster_active on sdr_roster(active);
 create index if not exists idx_sdr_roster_email on sdr_roster(lower(email));
 
--- Note: Slack Reports (Call Blitz) config lives in code (config/slack-reports.ts), not a
--- database table — it's on-demand only (Preview/Run Now/Send Test, no automatic schedule), so
--- there's no runtime state to persist either. See that file's header comment. It reads the
--- existing sdr_managers/sdr_roster tables above for team membership and sdr_activities/sdr_deals
--- for report data; no new tables, no schema changes required.
 
 -- Seeds (idempotent)
 insert into sdr_sync_state(key) values ('calls'),('emails'),('companies'),('deals'),('owners'),('lock'),('agent')
