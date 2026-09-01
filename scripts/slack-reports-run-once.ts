@@ -6,7 +6,7 @@
  *  Reads REPORT_KEY (required) and TEST_MODE ("true"/"false", default "false") from the env. */
 import "dotenv/config";
 import { getSlackReport } from "../config/slack-reports";
-import { runOneReport } from "../lib/slackReports/scheduler";
+import { runOneReport } from "../lib/slackReports/run";
 
 async function main() {
   const key = process.env.REPORT_KEY;

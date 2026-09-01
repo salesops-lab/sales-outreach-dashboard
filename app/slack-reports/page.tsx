@@ -3,35 +3,19 @@ import { Radio } from "lucide-react";
 import { supabaseServer } from "../../lib/supabase/server";
 import { resolveViewer } from "../../lib/access/resolve";
 import { SLACK_REPORTS } from "../../config/slack-reports";
-import { isScheduleEnabled, getRunState } from "../../lib/slackReports/state";
-import { nextRunAt } from "../../lib/slackReports/dueSlot";
 import AppNav from "../../components/AppNav";
-import SlackReportsHub, { ReportWithStatus } from "../../components/slackReports/SlackReportsHub";
+import SlackReportsHub from "../../components/slackReports/SlackReportsHub";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/** Slack Reports — admin-only. Report identity/team/channel/schedule are a static list
- *  (config/slack-reports.ts, not a database table — see that file's header comment for why); the
- *  live on/off toggle and last-run status are the one bit of runtime state, read here per report
- *  (lib/slackReports/state.ts, reusing the existing sdr_sync_state table). Gated exactly like
- *  /admin (page-level redirect + a re-derived requireAdmin() check in every server action). */
+/** Slack Reports — admin-only, on-demand only (no automatic schedule, no database). Reports are a
+ *  static list (config/slack-reports.ts — see that file's header comment for why). Gated exactly
+ *  like /admin (page-level redirect + a re-derived requireAdmin() check in every server action). */
 export default async function SlackReportsPage() {
   const { data: { user } } = await supabaseServer().auth.getUser();
   const viewer = await resolveViewer(user?.email ?? "");
   if (!viewer.isAdmin) redirect("/");
-
-  const nowMs = Date.now();
-  const reports: ReportWithStatus[] = await Promise.all(
-    SLACK_REPORTS.map(async (report) => {
-      const active = await isScheduleEnabled(report.key, report.enabled);
-      const [runState, nextRunMs] = await Promise.all([
-        getRunState(report.key),
-        Promise.resolve(active ? nextRunAt(report, nowMs) : null),
-      ]);
-      return { ...report, active, nextRunMs, runState };
-    }),
-  );
 
   return (
     <>
@@ -43,10 +27,10 @@ export default async function SlackReportsPage() {
           </span>
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight text-ink sm:text-[28px]">Slack Reports</h1>
-            <p className="mt-0.5 text-sm text-ink-muted">Automate and manage sales activity reports sent to Slack.</p>
+            <p className="mt-0.5 text-sm text-ink-muted">Share sales activity reports to Slack on demand.</p>
           </div>
         </header>
-        <SlackReportsHub reports={reports} />
+        <SlackReportsHub reports={SLACK_REPORTS} />
       </main>
     </>
   );

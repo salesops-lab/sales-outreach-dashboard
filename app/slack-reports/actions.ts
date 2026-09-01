@@ -1,9 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { requireAdmin } from "../../lib/access/requireAdmin";
 import { getSlackReport } from "../../config/slack-reports";
-import { setScheduleEnabled } from "../../lib/slackReports/state";
 
 type ActionResult = { ok: boolean; message: string };
 
@@ -45,23 +43,4 @@ export async function runReportNow(_prev: ActionResult | null, formData: FormDat
   const key = String(formData.get("key") ?? "");
   if (!getSlackReport(key)) return { ok: false, message: "Unknown report." };
   return dispatchRunOnce(key, false);
-}
-
-/** Stops or resumes ONLY automatic scheduled sends — never touches report config, history, or
- *  Preview/Run Now/Send Test, which all remain fully independent of this flag. */
-export async function setScheduleActive(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
-  try {
-    await requireAdmin();
-    const key = String(formData.get("key") ?? "");
-    const active = String(formData.get("active")) === "true";
-    const report = getSlackReport(key);
-    if (!report) return { ok: false, message: "Unknown report." };
-    await setScheduleEnabled(key, active);
-    revalidatePath("/slack-reports");
-    return active
-      ? { ok: true, message: "✓ Schedule started. Automatic Slack reports are enabled again." }
-      : { ok: true, message: "✓ Schedule stopped. Automatic Slack reports are now disabled." };
-  } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : String(e) };
-  }
 }

@@ -7,8 +7,8 @@
  * numbers — only pixel styling is duplicated here, never the metrics fold.
  *
  * Playwright is a devDependency used only by scripts run via GitHub Actions (this never ships in
- * the Next.js app bundle) — see .github/workflows/slack-reports-heartbeat.yml and
- * slack-reports-run-once.yml for the `npx playwright install --with-deps chromium` setup step.
+ * the Next.js app bundle) — see .github/workflows/slack-reports-run-once.yml for the
+ * `npx playwright install --with-deps chromium` setup step.
  */
 import { chromium } from "playwright";
 import { CallBlitzReport, CallBlitzRow, CallBlitzTotals } from "./callBlitz";

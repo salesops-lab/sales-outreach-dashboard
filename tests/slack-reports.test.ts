@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { buildCallBlitzReport } from "../lib/slackReports/callBlitz";
-import { dueSlotFor, nextRunAt } from "../lib/slackReports/dueSlot";
 import { Activity } from "../lib/sync/types";
 import {
   CALLBACK_HIGH_GUID, CALLBACK_LOW_GUID, NOT_INTERESTED_GUID, GAVE_REFERRAL_GUID,
@@ -91,76 +90,5 @@ describe("buildCallBlitzReport", () => {
     const report = buildCallBlitzReport([], {}, ["rep1"], NAMES, "2026-08-31", "Team");
     expect(report.rows).toHaveLength(1);
     expect(report.rows[0]).toMatchObject({ calls: 0, emails: 0, totalTouches: 0, demos: 0 });
-  });
-});
-
-describe("dueSlotFor", () => {
-  const schedule = { daysOfWeek: [1, 2, 3, 4, 5], time1: "10:00", time2: "16:00" };
-
-  it("fires within the tolerance window of a configured time on a scheduled day", () => {
-    // 2026-08-31 is a Monday. 10:03 IST is within a 10-min window of 10:00.
-    const mondayIst1003 = Date.parse("2026-08-31T04:33:00.000Z"); // 10:03 IST = 04:33 UTC
-    const slot = dueSlotFor({ timezone: "Asia/Kolkata", schedule }, mondayIst1003);
-    expect(slot).toBe("2026-08-31T10:00");
-  });
-
-  it("does not fire outside the tolerance window", () => {
-    const mondayIst1015 = Date.parse("2026-08-31T04:45:00.000Z"); // 10:15 IST
-    expect(dueSlotFor({ timezone: "Asia/Kolkata", schedule }, mondayIst1015)).toBeNull();
-  });
-
-  it("does not fire on a day not in daysOfWeek", () => {
-    // 2026-09-05 is a Saturday.
-    const saturdayIst1003 = Date.parse("2026-09-05T04:33:00.000Z");
-    expect(dueSlotFor({ timezone: "Asia/Kolkata", schedule }, saturdayIst1003)).toBeNull();
-  });
-
-  it("respects the report's configured timezone independent of server-local time", () => {
-    // Same instant, evaluated for a report configured in America/New_York instead.
-    const instant = Date.parse("2026-08-31T14:03:00.000Z"); // 10:03 ET
-    const slot = dueSlotFor({ timezone: "America/New_York", schedule }, instant);
-    expect(slot).toBe("2026-08-31T10:00");
-  });
-});
-
-describe("nextRunAt", () => {
-  // The actual configured schedule: 21:25 IST + 02:55 IST (end-of-day), Mon-Fri.
-  const schedule = { daysOfWeek: [1, 2, 3, 4, 5], time1: "21:25", time2: "02:55" };
-  const report = { timezone: "Asia/Kolkata", schedule };
-
-  it("returns today's evening slot when it hasn't fired yet", () => {
-    // Monday 2026-08-31, 20:30 IST = 15:00 UTC — before the 21:25 IST slot.
-    const nowMs = Date.parse("2026-08-31T15:00:00.000Z");
-    const next = nextRunAt(report, nowMs);
-    expect(next).toBe(Date.parse("2026-08-31T15:55:00.000Z")); // 21:25 IST = 15:55 UTC
-  });
-
-  it("rolls to the end-of-day (02:55 IST) slot after the evening slot has passed", () => {
-    // Monday 2026-08-31, 23:30 IST = 18:00 UTC — after 21:25 IST, before 02:55 IST next calendar day.
-    const nowMs = Date.parse("2026-08-31T18:00:00.000Z");
-    const next = nextRunAt(report, nowMs);
-    // 02:55 IST on Sep 1 = Aug 31 21:25 UTC.
-    expect(next).toBe(Date.parse("2026-08-31T21:25:00.000Z"));
-  });
-
-  it("never returns a slot that has already passed", () => {
-    const nowMs = Date.parse("2026-08-31T15:00:00.000Z");
-    const next = nextRunAt(report, nowMs);
-    expect(next).not.toBeNull();
-    expect(next as number).toBeGreaterThan(nowMs);
-  });
-
-  it("skips to the next allowed weekday", () => {
-    // Saturday 2026-09-05 — not in daysOfWeek — next run should land on Monday 2026-09-07.
-    const nowMs = Date.parse("2026-09-05T10:00:00.000Z");
-    const next = nextRunAt(report, nowMs);
-    expect(next).not.toBeNull();
-    const nextIst = new Date(next as number).toLocaleString("en-US", { timeZone: "Asia/Kolkata", weekday: "long" });
-    expect(nextIst).toBe("Monday");
-  });
-
-  it("returns null when there are no configured days or times", () => {
-    expect(nextRunAt({ timezone: "Asia/Kolkata", schedule: { daysOfWeek: [], time1: "10:00", time2: null } }, Date.now())).toBeNull();
-    expect(nextRunAt({ timezone: "Asia/Kolkata", schedule: { daysOfWeek: [1], time1: "", time2: null } }, Date.now())).toBeNull();
   });
 });

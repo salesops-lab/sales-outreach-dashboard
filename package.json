@@ -23,7 +23,6 @@
     "embed:content": "tsx --conditions=react-server scripts/embed-content.ts",
     "intel:signals": "tsx --conditions=react-server scripts/intel-signals.ts",
     "content:backfill": "tsx --conditions=react-server scripts/content-backfill.ts",
-    "slack-reports:run": "tsx --conditions=react-server scripts/slack-reports-run.ts",
     "slack-reports:run-once": "tsx --conditions=react-server scripts/slack-reports-run-once.ts",
     "test": "vitest run"
   },

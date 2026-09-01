@@ -159,10 +159,6 @@ create table if not exists sdr_sync_state (
   notes            text,
   lock_until       timestamptz
 );
--- Slack Reports' "Stop Schedule"/"Start Schedule" toggle (lib/slackReports/state.ts, key
--- "slack:<report key>") — reuses this table rather than a new one; added via ALTER so existing
--- installs pick it up.
-alter table sdr_sync_state add column if not exists enabled boolean not null default true;
 
 create table if not exists sdr_snapshots (
   id           integer primary key check (id = 1),
@@ -550,13 +546,13 @@ create index if not exists idx_sdr_roster_active on sdr_roster(active);
 create index if not exists idx_sdr_roster_email on sdr_roster(lower(email));
 
 -- Note: Slack Reports (Call Blitz) config lives in code (config/slack-reports.ts), not a
--- database table — a small, fixed set of teams/channels/schedules doesn't need one. See that
--- file's header comment. It reads the existing sdr_managers/sdr_roster tables above for team
--- membership and sdr_activities/sdr_deals for report data; no new tables required.
+-- database table — it's on-demand only (Preview/Run Now/Send Test, no automatic schedule), so
+-- there's no runtime state to persist either. See that file's header comment. It reads the
+-- existing sdr_managers/sdr_roster tables above for team membership and sdr_activities/sdr_deals
+-- for report data; no new tables, no schema changes required.
 
 -- Seeds (idempotent)
-insert into sdr_sync_state(key) values ('calls'),('emails'),('companies'),('deals'),('owners'),('lock'),('agent'),
-  ('slack:vaibhav-call-blitz'),('slack:rajveer-call-blitz')
+insert into sdr_sync_state(key) values ('calls'),('emails'),('companies'),('deals'),('owners'),('lock'),('agent')
   on conflict (key) do nothing;
 
 insert into sdr_roles(email, role, team_id) values
