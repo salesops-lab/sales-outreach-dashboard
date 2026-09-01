@@ -24,7 +24,6 @@ footprint (repo `salesops-lab/sdr-outreach-dashboard`, salesops Vercel project, 
 | `npm run pull:owner` | Targeted full-history pull for ONE owner (`OWNER_ID=… npm run pull:owner`) |
 | `npm run agent:run` | One hot-account agent pass (needs `OPENAI_API_KEY`) |
 | `npm run content:backfill` | Opt-in: pull call notes/transcripts/email subjects |
-| `npm run slack-reports:run-once` | On-demand single-report fire (`REPORT_KEY=<key> TEST_MODE=true\|false`) — the "Run Now"/"Send Test" buttons dispatch a GitHub Action that calls this; no scheduler |
 
 ## Project Stack
 
@@ -48,7 +47,7 @@ footprint (repo `salesops-lab/sdr-outreach-dashboard`, salesops Vercel project, 
   - Single file: `npm test -- --run tests/temperature.test.ts`
   - By name: `npm test -- --run -t "temperature"`
   - Watch mode: `npx vitest tests/temperature.test.ts` (drop the `--run`)
-- **Test coverage:** `tests/` covers pure logic only — 25 files / 250 tests: US/Eastern bucketing with DST (+ `periodBounds`), aggregation (incl. GD grouping + deal integration + V3 event-truth demos/pipeline + range windows), activity/deal→company association (+ orphan-heal fallback), temperature classification, the canonical deal-stage engine (+ V3 active/parked/demo-completed predicates), stage-event extraction, demo-status segmentation, Deal Health, Forecast v1, integrity checks, the account-timeline builder, the calling drill-down builder, the embedding chunk composer, pod/team filters, call-quality mapping, spine row mappers, RBAC scope decision, agent detector/prompt/ranking, and the auth-domain rule. Never import `server-only` modules in tests; they throw under Vitest.
+- **Test coverage:** `tests/` covers pure logic only — 25 files / 245 tests: US/Eastern bucketing with DST (+ `periodBounds`), aggregation (incl. GD grouping + deal integration + V3 event-truth demos/pipeline + range windows), activity/deal→company association (+ orphan-heal fallback), temperature classification, the canonical deal-stage engine (+ V3 active/parked/demo-completed predicates), stage-event extraction, demo-status segmentation, Deal Health, Forecast v1, integrity checks, the account-timeline builder, the calling drill-down builder, the embedding chunk composer, pod/team filters, call-quality mapping, spine row mappers, RBAC scope decision, agent detector/prompt/ranking, and the auth-domain rule. Never import `server-only` modules in tests; they throw under Vitest.
 
 ## Architecture Overview
 
@@ -164,34 +163,6 @@ Shared types across modules:
 - `lib/callquality/types.ts` — read-only call-scoring merge (BANTIC, coaching snapshots)
 - `lib/agent/types.ts` — AI agent I/O (hot-account detection, reasoning, watches)
 
-## Slack Reports (`lib/slackReports/*`, admin-only, `/slack-reports`)
-
-On-demand Slack sharing — **no automatic schedule, no database**. First report type: **Call Blitz**
-(Calls/Emails/Total Touches/Connected/High Intent/Low Intent/Not Interested/Referral/Demos/Meeting
-per rep + totals). Gated exactly like `/admin` (`viewer.isAdmin` + `lib/access/requireAdmin.ts` in
-every server action). **Total Touches = Calls + Emails** (verbatim from `lib/sync/temperature.ts`);
-all disposition counts reuse `config/dispositions.ts` predicates directly — no parallel
-calculation. Demos is deal-stage-driven (`demoScheduledMs()`), Meeting is call-outcome-driven
-(Meeting Scheduled OR Rescheduled) — deliberately different data sources. Reporting date is always
-the dashboard's own ET "today," computed fresh at click time. **Report config is code, not a
-database table** — `config/slack-reports.ts` (`SLACK_REPORTS`) lists team/channel per report;
-adding a team is a code change + redeploy (deliberately not admin-editable, for a small fixed set
-of teams — a full DB-config table, and later a DB-backed schedule/enable toggle, were both tried
-and reverted, each adding RLS/schema-cache overhead with no real benefit). A report can drop
-specific reps entirely via `excludeOwnerNames` (filtered in `build.ts` before any data loads, so it
-never skews `TEAM TOTAL` either). **Delivery is an image, not text** — Slack has no HTML table
-primitive, so `lib/slackReports/renderImage.ts` renders a standalone HTML document matching
-`PreviewTable.tsx` with headless Chromium (`playwright`, devDependency only, never bundled into the
-app) and screenshots it; `deliver.ts`'s `sendSlackImage()` posts it via Slack's file-upload-v2 REST
-flow using ONE shared `SLACK_BOT_TOKEN` (Incoming Webhooks can't upload files — each config entry
-names a `channelId`, not a webhook URL). **"Run Now"/"Send Test" dispatch**
-`slack-reports-run-once.yml` (via `app/slack-reports/actions.ts`) rather than rendering inline — a
-real headless browser doesn't fit well inside a Vercel serverless function, but is comfortable on a
-GitHub Actions runner — so results land in Slack ~30-60s after the button click, not synchronously,
-and `scripts/slack-reports-run-once.ts` → `lib/slackReports/run.ts`'s `runOneReport()` is the one
-function that actually renders + sends. No run history is persisted anywhere — the Action's own run
-log is the record of what fired.
-
 ## Environment & Secrets
 
 Secrets live **only in `.env.local` (gitignored) and Vercel/GitHub secrets** — never in code.
@@ -205,8 +176,7 @@ Optional:
 - `CRON_SECRET` (for `/api/sync/delta` route, constant-time check)
 - `OPENAI_API_KEY` (agent reasoning; optional model override: `OPENAI_MODEL`, default `gpt-4o-mini`)
 - `BLOB_READ_WRITE_TOKEN` (Vercel Blob fallback for snapshot storage)
-- `GH_DISPATCH_TOKEN` (GitHub Actions secret — a PAT with `actions:write`; **required** for the delta heartbeat's self-redispatch, the admin add-user owner-pull, and the Slack Reports "Run Now"/"Send Test" dispatch. Also lives in Vercel env for the server-action path)
-- `SLACK_BOT_TOKEN` — ONE shared Slack Bot Token (`xoxb-...`, scopes `files:write`+`chat:write`) authenticating every Slack Reports image send; server-only, never stored in a database or returned by an API. Each `config/slack-reports.ts` entry names a `channelId` (not a secret), not a webhook
+- `GH_DISPATCH_TOKEN` (GitHub Actions secret — a PAT with `actions:write`; **required** for the delta heartbeat's self-redispatch and the admin add-user owner-pull. Also lives in Vercel env for the server-action path)
 
 **Production fails closed (503)** if `NEXT_PUBLIC_SUPABASE_*` vars are missing. Local dev without them runs ungated, spine/call-quality disabled.
 
@@ -271,11 +241,10 @@ The hot-account agent runs every 2 hours (GitHub Actions), reads-only on HubSpot
   - `lib/access/` — RBAC scope decision
   - `lib/callquality/` — read-only call-scoring merge
   - `lib/agent/` — AI agent (detect, reason, store)
-  - `lib/slackReports/` — Slack Reports engine (metrics fold, assembly, image render, Slack file upload, scheduler)
   - `lib/auth/` — auth domain rule
   - `lib/supabase/` — Supabase client (admin = server-only)
-- `config/` — dispositions, HubSpot portal, canonical deal stages (`deal-stages.ts`); `reps`/`team-structure` are the roster seed/fallback (the DB is authoritative); `slack-reports.ts` is the Slack Reports config (code, not a DB table)
-- `tests/` — Vitest, 25 files / 250 tests, pure logic only (full inventory in CLAUDE.md's Commands section)
+- `config/` — dispositions, HubSpot portal, canonical deal stages (`deal-stages.ts`); `reps`/`team-structure` are the roster seed/fallback (the DB is authoritative)
+- `tests/` — Vitest, 25 files / 245 tests, pure logic only (full inventory in CLAUDE.md's Commands section)
 - `scripts/` — CLI scripts (sync, agent, verify-schema)
 - `supabase/` — SQL schema + RLS floor
 
