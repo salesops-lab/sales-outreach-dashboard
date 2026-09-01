@@ -1,0 +1,65 @@
+name: Slack reports heartbeat
+# WHY: GitHub's `schedule:` cron is throttled hard on public repos (the existing */15 delta cron
+# fires ~hourly with multi-hour gaps — see spine-delta-heartbeat.yml). A missed Slack report is
+# directly visible to a sales manager, so this copies the same self-redispatching-loop pattern
+# rather than accepting a plain cron's drift.
+#
+# Continuity:
+#   * primary  - self re-dispatch at the end of each ~5h20m loop (needs GH_DISPATCH_TOKEN, a PAT
+#                with actions:write; GITHUB_TOKEN cannot trigger workflow_dispatch by design).
+#   * fallback - a coarse schedule cold-starts a new loop if the self-dispatch chain ever breaks.
+# The DB-backed idempotency ledger (sdr_slack_report_runs unique constraint) makes any trigger
+# overlap safe — a second check of an already-fired slot just no-ops.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "33 */3 * * *"
+permissions:
+  contents: read
+concurrency:
+  group: slack-reports-loop
+  cancel-in-progress: true
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Scheduler loop (every ~10 min for ~5h20m)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SLACK_VAIBHAV_WEBHOOK: ${{ secrets.SLACK_VAIBHAV_WEBHOOK }}
+          SLACK_RAJVEER_WEBHOOK: ${{ secrets.SLACK_RAJVEER_WEBHOOK }}
+        run: |
+          END=$(( $(date +%s) + 19200 ))
+          CYCLE=0
+          while [ "$(date +%s)" -lt "$END" ]; do
+            CYCLE=$((CYCLE + 1))
+            START=$(date +%s)
+            echo "::group::slack-reports cycle $CYCLE ($(date -u +%H:%M:%SZ))"
+            npm run slack-reports:run || echo "::warning::slack-reports cycle $CYCLE failed - continuing (idempotent; retries next cycle)"
+            echo "::endgroup::"
+            REMAIN=$(( END - $(date +%s) ))
+            [ "$REMAIN" -le 0 ] && break
+            SLEEP=$(( 600 - ($(date +%s) - START) ))
+            [ "$SLEEP" -lt 30 ] && SLEEP=30
+            [ "$SLEEP" -gt "$REMAIN" ] && SLEEP=$REMAIN
+            echo "cycle $CYCLE done; sleeping ${SLEEP}s"
+            sleep "$SLEEP"
+          done
+      - name: Re-dispatch self (continue the cadence past the 6h job cap)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::GH_DISPATCH_TOKEN not set - cannot self-redispatch. The loop restarts on"
+            echo "::warning::the next scheduled fire. Add the secret for a seamless ~10-min cadence."
+            exit 0
+          fi
+          echo "Re-dispatching slack-reports-heartbeat.yml to continue the loop..."
+          gh workflow run slack-reports-heartbeat.yml --ref main
