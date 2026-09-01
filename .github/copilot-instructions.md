@@ -177,10 +177,10 @@ database table** — `config/slack-reports.ts` (`SLACK_REPORTS`) lists team/chan
 adding a team is a code change + redeploy (deliberately not admin-editable, for a small fixed set
 of teams). A report can drop specific reps entirely via `excludeOwnerNames` (filtered in
 `build.ts` before any data loads, so it never skews `TEAM TOTAL` either). **Delivery is a Slack
-Incoming Webhook POST carrying a Block Kit message — no bot token, no file upload, no image, no
-headless browser.** `lib/slackReports/blockKit.ts` renders a `header` + `context` + one `section`
-block per rep (bold name, compact stat line) + a `TEAM TOTAL` section, plus a required plain-text
-fallback; `deliver.ts`'s `sendSlackMessage()` posts it to the webhook URL resolved from
+Incoming Webhook POST carrying a fixed-width monospace table — no bot token, no file upload, no
+image, no headless browser.** `lib/slackReports/format.ts` pads columns into an aligned table
+inside a code block (a Block Kit per-rep bullet layout was tried first and rejected as "not a
+proper table"); `deliver.ts`'s `sendSlackMessage()` posts `{text}` to the webhook URL resolved from
 `process.env[envVarKey]` at send time only (each config entry names a `channelEnvVar`, never the
 URL). **"Run Now"/"Send Test" run inline** in `app/slack-reports/actions.ts` → `lib/slackReports/
 run.ts`'s `runOneReport()` — no GitHub Actions dispatch, no background job, since a webhook POST
@@ -265,7 +265,7 @@ The hot-account agent runs every 2 hours (GitHub Actions), reads-only on HubSpot
   - `lib/access/` — RBAC scope decision
   - `lib/callquality/` — read-only call-scoring merge
   - `lib/agent/` — AI agent (detect, reason, store)
-  - `lib/slackReports/` — Slack Reports engine (metrics fold, assembly, Block Kit format, webhook delivery)
+  - `lib/slackReports/` — Slack Reports engine (metrics fold, assembly, monospace-table format, webhook delivery)
   - `lib/auth/` — auth domain rule
   - `lib/supabase/` — Supabase client (admin = server-only)
 - `config/` — dispositions, HubSpot portal, canonical deal stages (`deal-stages.ts`); `reps`/`team-structure` are the roster seed/fallback (the DB is authoritative); `slack-reports.ts` is the Slack Reports config (code, not a DB table)

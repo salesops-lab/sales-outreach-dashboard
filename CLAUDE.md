@@ -34,9 +34,9 @@ the full **lead→demo→closure funnel** + **intelligence** on top:
   no parallel calculation. Report config (team/channel) is a plain code file
   (`config/slack-reports.ts`), **not a database table**. An admin clicks Preview/Run Now/Send Test
   from `/slack-reports` whenever they want a report shared; delivery is a **Slack Incoming Webhook
-  POST** (`lib/slackReports/deliver.ts`) carrying a **Block Kit** message
-  (`lib/slackReports/blockKit.ts`) — no bot token, no file upload, no image, no headless browser —
-  so it runs inline in the Vercel server action and lands in Slack synchronously. A report can
+  POST** (`lib/slackReports/deliver.ts`) carrying a **fixed-width monospace table** in a code block
+  (`lib/slackReports/format.ts`) — no bot token, no file upload, no image, no headless browser — so
+  it runs inline in the Vercel server action and lands in Slack synchronously. A report can
   exclude specific reps entirely via `excludeOwnerNames`.
 
 Surfaces: **Overview** (`/`, the rep table + Demo funnel + SDR/AE toggle), **Accounts** (`/accounts`,
@@ -554,17 +554,16 @@ ET "today", computed fresh at click time.
   display names, case-insensitive) filters them out in `build.ts` before any data loads, so an
   excluded rep never skews `TEAM TOTAL` either. Used to drop a player-coach manager from his own
   team's report.
-- **Delivery is a Slack Incoming Webhook POST carrying a Block Kit message — no bot token, no file
-  upload, no image, no headless browser.** `lib/slackReports/blockKit.ts` `buildCallBlitzBlocks()`
-  is a pure function producing `{blocks, text}`: a `header` block, a `context` block (report date,
-  🧪 marker on a test send), one `section` block per rep (bold name + a compact stat line — avoids
-  the fixed-width monospace alignment that broke on mobile in an earlier version), and a final
-  `section` for `TEAM TOTAL`. `text` is the required plain-text fallback (notifications/
-  accessibility) — a short one-line summary, never the full table. `lib/slackReports/deliver.ts`
-  `sendSlackMessage()` resolves the webhook URL from `process.env[envVarKey]` at send time only
-  (`config/slack-reports.ts` entries name a `channelEnvVar`, e.g. `SLACK_VAIBHAV_WEBHOOK` — never
-  the URL itself) and POSTs the JSON payload; errors name the channel label + env var **key name**,
-  never the resolved URL.
+- **Delivery is a Slack Incoming Webhook POST carrying a fixed-width monospace table — no bot
+  token, no file upload, no image, no headless browser.** A Block Kit per-rep bullet layout was
+  tried first and rejected by the user as "not a proper table format" — `lib/slackReports/
+  format.ts` `formatCallBlitzMessage()` is a pure function that pads columns (Touch/Calls/Email/
+  Conn/High/Low/NI/Ref/Demo/Mtg) into an aligned table inside a triple-backtick code block, with a
+  `📊/📅/👥` heading and a 🧪 marker on a test send — this is what actually renders as a table in
+  Slack. `lib/slackReports/deliver.ts` `sendSlackMessage()` resolves the webhook URL from
+  `process.env[envVarKey]` at send time only (`config/slack-reports.ts` entries name a
+  `channelEnvVar`, e.g. `SLACK_VAIBHAV_WEBHOOK` — never the URL itself) and POSTs `{text}`; errors
+  name the channel label + env var **key name**, never the resolved URL.
 - **"Run Now"/"Send Test" run inline in the server action — no GitHub Actions dispatch, no
   background job.** A webhook POST has no browser dependency, so `app/slack-reports/actions.ts`
   calls `lib/slackReports/run.ts`'s `runOneReport()` directly and awaits it; the result lands in
