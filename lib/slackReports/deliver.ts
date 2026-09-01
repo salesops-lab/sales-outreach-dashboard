@@ -7,7 +7,7 @@ export interface SlackDestinationRef {
   envVarKey: string;
 }
 
-export async function sendSlackMessage(destination: SlackDestinationRef, payload: { text: string; blocks?: unknown[] }): Promise<void> {
+export async function sendSlackMessage(destination: SlackDestinationRef, text: string): Promise<void> {
   const url = process.env[destination.envVarKey];
   if (!url) {
     throw new Error(`Slack webhook env var "${destination.envVarKey}" is not set — cannot send to ${destination.channelLabel}.`);
@@ -17,7 +17,7 @@ export async function sendSlackMessage(destination: SlackDestinationRef, payload
     res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ text }),
     });
   } catch (e) {
     throw new Error(`Slack delivery to ${destination.channelLabel} failed: ${e instanceof Error ? e.message : "network error"}.`);

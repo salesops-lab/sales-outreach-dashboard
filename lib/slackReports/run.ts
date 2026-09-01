@@ -5,14 +5,14 @@
  */
 import { SlackReportConfig } from "../../config/slack-reports";
 import { assembleCallBlitzReport } from "./build";
-import { buildCallBlitzBlocks } from "./blockKit";
+import { formatCallBlitzMessage } from "./format";
 import { sendSlackMessage } from "./deliver";
 
 export async function runOneReport(report: SlackReportConfig, opts: { test?: boolean } = {}): Promise<{ ok: boolean; error?: string }> {
   try {
     const reportData = await assembleCallBlitzReport({ managerKey: report.managerKey, excludeOwnerNames: report.excludeOwnerNames });
-    const { blocks, text } = buildCallBlitzBlocks(reportData, { test: opts.test });
-    await sendSlackMessage({ channelLabel: report.channelLabel, envVarKey: report.channelEnvVar }, { text, blocks });
+    const { text } = formatCallBlitzMessage(reportData, { test: opts.test });
+    await sendSlackMessage({ channelLabel: report.channelLabel, envVarKey: report.channelEnvVar }, text);
     console.log(`[slack-reports] ${opts.test ? "TEST " : ""}sent "${report.name}" to ${report.channelLabel}`);
     return { ok: true };
   } catch (e) {
