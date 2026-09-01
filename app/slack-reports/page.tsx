@@ -2,14 +2,16 @@ import { redirect } from "next/navigation";
 import { Radio } from "lucide-react";
 import { supabaseServer } from "../../lib/supabase/server";
 import { resolveViewer } from "../../lib/access/resolve";
+import { SLACK_REPORTS } from "../../config/slack-reports";
 import AppNav from "../../components/AppNav";
-import { Surface } from "../../components/ui";
+import SlackReportsHub from "../../components/slackReports/SlackReportsHub";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/** Slack Reports — admin-only. Feature content intentionally cleared; the tab stays in the nav
- *  as a placeholder until requirements for it are provided. */
+/** Slack Reports — admin-only, on-demand only (no automatic schedule, no database). Reports are a
+ *  static list (config/slack-reports.ts — see that file's header comment for why). Gated exactly
+ *  like /admin (page-level redirect + a re-derived requireAdmin() check in every server action). */
 export default async function SlackReportsPage() {
   const { data: { user } } = await supabaseServer().auth.getUser();
   const viewer = await resolveViewer(user?.email ?? "");
@@ -25,15 +27,10 @@ export default async function SlackReportsPage() {
           </span>
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight text-ink sm:text-[28px]">Slack Reports</h1>
-            <p className="mt-0.5 text-sm text-ink-muted">Nothing configured yet.</p>
+            <p className="mt-0.5 text-sm text-ink-muted">Share sales activity reports to Slack on demand.</p>
           </div>
         </header>
-        <Surface className="p-10 text-center">
-          <p className="text-sm font-semibold text-ink">Slack Reports is empty.</p>
-          <p className="mx-auto mt-1 max-w-sm text-sm text-ink-muted">
-            This tab is a placeholder — requirements for this feature haven&apos;t been defined yet.
-          </p>
-        </Surface>
+        <SlackReportsHub reports={SLACK_REPORTS} />
       </main>
     </>
   );
