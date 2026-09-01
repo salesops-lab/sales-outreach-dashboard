@@ -27,12 +27,23 @@ the full **lead→demo→closure funnel** + **intelligence** on top:
   competitor mentions / buying signals / risks / commitments → `sdr_intel_signals`), **Themes**
   (manager rollups), **Focus** (SDR daily list: watches + at-risk demos + revivals), **Deal
   Radar** (AE risk-ranked pipeline), and **shared action tracking** (`sdr_agent_actions`).
+- **Slack Reports (`lib/slackReports/*`)** — admin-only, on-demand Slack sharing (no automatic
+  schedule, no database), first report type **Call Blitz** (Calls/Emails/Total Touches/Connected/
+  High Intent/Low Intent/Not Interested/Referral/Demos/Meeting per rep + team totals). Pure metrics
+  fold over the same spine reads + `config/dispositions.ts` predicates the rest of the app uses —
+  no parallel calculation. Report config (team/channel) is a plain code file
+  (`config/slack-reports.ts`), **not a database table**. An admin clicks Preview/Run Now/Send Test
+  from `/slack-reports` whenever they want a report shared; delivery is a **Slack Incoming Webhook
+  POST** (`lib/slackReports/deliver.ts`) carrying a **Block Kit** message
+  (`lib/slackReports/blockKit.ts`) — no bot token, no file upload, no image, no headless browser —
+  so it runs inline in the Vercel server action and lands in Slack synchronously. A report can
+  exclude specific reps entirely via `excludeOwnerNames`.
+
 Surfaces: **Overview** (`/`, the rep table + Demo funnel + SDR/AE toggle), **Accounts** (`/accounts`,
 owned book by demo-status with GD→rooftop→contact drill, Deal Health/Temperature + last-activity),
 **Intelligence** (`/attention` — a tabbed hub: Ask · Focus · Radar · Themes · Board, role-aware
-default tab, `?tab=` deep-links), **Slack Reports** (`/slack-reports` — admin-only; currently an
-empty placeholder, content pending a future spec), **Admin** (`/admin`). Shared top-nav in
-`components/AppNav.tsx`.
+default tab, `?tab=` deep-links), **Slack Reports** (`/slack-reports` — admin-only), **Admin**
+(`/admin`). Shared top-nav in `components/AppNav.tsx`.
 
 Read `README.md` for product definitions and setup. This file covers architecture and the
 non-obvious conventions that span multiple files. Other docs: `docs/AI-CRM-BLUEPRINT.md` is the V3
@@ -91,10 +102,13 @@ Forecast v1 (`forecast.test.ts`), the integrity checks (`integrity.test.ts`), th
 chunk composer (`embed-chunks.test.ts`), the calling drill-down builder (`calling.test.ts`),
 and the Intelligence 2.0 pure logic — signal prompt/coercion/rescan (`intel-signals.test.ts`),
 the Focus merge incl. revival-window edges (`intel-focus.test.ts`), and the Radar
-ranking incl. the zombie sink (`intel-radar.test.ts`) — 25 files / 245 tests in all. Never
+ranking incl. the zombie sink (`intel-radar.test.ts`); and the Slack Reports Call Blitz fold
+(`slack-reports.test.ts`) — 26 files / 250 tests in all. Never
 import a `server-only`-guarded module (`lib/supabase/admin.ts`,
-`lib/callquality/fetch.ts`, `lib/agent/openai|store|runner.ts` — which transitively pulls in
-`supabaseAdmin` via `lib/spine/store.ts`/`lib/team/load.ts`) from a test — it throws under vitest.
+`lib/callquality/fetch.ts`, `lib/agent/openai|store|runner.ts`, `lib/slackReports/build.ts` — which
+transitively pulls in `supabaseAdmin` via `lib/spine/store.ts`/`lib/team/load.ts`) from a test — it
+throws under vitest (`lib/slackReports/callBlitz.ts`, the pure fold the test actually imports, has
+no such dependency).
 
 Node 22+ required (`engines.node`; workflows pin `node-version: 22`). Hard floor:
 `@supabase/supabase-js` needs a global `WebSocket` (Node 21+); on Node 20 every `supabaseAdmin()`
@@ -356,13 +370,16 @@ Deal Health, stage, at-risk/revive flags) and `last_activity` (date/type/outcome
   `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` (auth) + `SUPABASE_SERVICE_ROLE_KEY`
   (spine + call-quality + agent, server-only); `OPENAI_API_KEY` (+ optional `OPENAI_MODEL`, default
   `gpt-4o-mini`) for the agent; `CRON_SECRET` (optional, `/api/sync/delta`); `BLOB_READ_WRITE_TOKEN`
-  (optional Blob fallback). **In prod the middleware fails CLOSED (503) if the `NEXT_PUBLIC_SUPABASE_*`
-  vars are missing.** GitHub crons need repo (Actions) secrets `HUBSPOT_PAT`, `SUPABASE_URL`,
-  `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY` (agent), and **`GH_DISPATCH_TOKEN`** (a
-  fine-grained PAT minted by the `salesops-lab` GitHub account, `actions:write` — powers the delta
-  heartbeat self-redispatch and the admin add-user owner-pull dispatch; also lives in Vercel env
-  for the server-action path; PATs are repo-owner-scoped, so a repo transfer kills them — re-mint
-  from the new owner).
+  (optional Blob fallback); one `SLACK_<NAME>_WEBHOOK` per `config/slack-reports.ts` entry (e.g.
+  `SLACK_VAIBHAV_WEBHOOK`, `SLACK_RAJVEER_WEBHOOK` — a plain Incoming Webhook URL, server-only,
+  read only by `lib/slackReports/deliver.ts` at send time, lives in **Vercel** env since Slack
+  Reports sends run inline in a server action, not GitHub Actions). **In prod the middleware fails
+  CLOSED (503) if the `NEXT_PUBLIC_SUPABASE_*` vars are missing.** GitHub crons need repo (Actions)
+  secrets `HUBSPOT_PAT`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY` (agent), and
+  **`GH_DISPATCH_TOKEN`** (a fine-grained PAT minted by the `salesops-lab` GitHub account,
+  `actions:write` — powers the delta heartbeat self-redispatch and the admin add-user owner-pull
+  dispatch; also lives in Vercel env for the server-action path; PATs are repo-owner-scoped, so a
+  repo transfer kills them — re-mint from the new owner).
 - **Ownership footprint (migrated to salesops@spyne.ai, 2026-07-14).** Repo:
   `salesops-lab/sdr-outreach-dashboard`; Vercel project `sdr-outreach-dashboard` under the salesops
   account (Hobby — no team members possible; the old kaus-spyne project was recreated, not
@@ -508,6 +525,51 @@ Deal Health, stage, at-risk/revive flags) and `last_activity` (date/type/outcome
 - **Activation (one-time):** apply `supabase/sdr_schema.sql` (adds `sdr_activity_content`,
   `sdr_agent_watches`, `sdr_agent_notes`, and the `sdr_save_snapshot` RPC) + set the `OPENAI_API_KEY`
   secret. The `spine-agent` cron then runs every 2 h.
+
+## Slack Reports (`lib/slackReports/*`, admin-only, `/slack-reports`)
+
+On-demand Slack sharing — **no automatic schedule, no database** — gated exactly like `/admin`
+(`viewer.isAdmin` at page level + `requireAdmin()` — shared from `lib/access/requireAdmin.ts` — in
+every server action). First report type: **Call Blitz** (Rep · Calls · Emails · Total Touches ·
+Connected · High Intent · Low Intent · Not Interested · Referral · Demos · Meeting, + a
+team-totals row). **Total Touches = Calls + Emails** (verbatim from `lib/sync/temperature.ts`); all
+disposition counts reuse `config/dispositions.ts` predicates directly — no parallel calculation.
+Demos is deal-stage-driven (`demoScheduledMs()`), Meeting is call-outcome-driven (Meeting Scheduled
+OR Rescheduled) — deliberately different data sources. Reporting date is always the dashboard's own
+ET "today", computed fresh at click time.
+
+- **Config is code, not a database table.** `config/slack-reports.ts` (`SLACK_REPORTS`) is a plain
+  array — team, Slack channel, webhook env var name — same pattern as `config/team-structure.ts`'s
+  DB-fallback seed. Adding a team or changing a channel is a code change + redeploy, not a UI
+  action. The `/slack-reports` page is **read-only** (Preview / Run Now / Send Test per configured
+  report) — no Create/Edit/Delete/Duplicate, no schedule/enable toggle.
+- **Reuse, never a parallel calculation.** `lib/slackReports/callBlitz.ts` (pure fold over
+  `Activity[]`) imports only the shared predicates from `config/dispositions.ts`
+  (`isConnected`/`isCallbackHigh`/`isCallbackLow`/`isNotInterested`/`isGaveReferral`,
+  `MEETING_SCHEDULED_GUID`/`MEETING_RESCHEDULED_GUID`) — the same ones `lib/sync/aggregate.ts` and
+  `lib/sync/calling.ts` use. `lib/slackReports/build.ts` `assembleCallBlitzReport()` is the one
+  function the "Send Test", "Run Now", and the live preview route (`/api/slack-reports/preview`)
+  all call — they can never show different numbers for the same report.
+- **A report can exclude specific reps entirely** — `SlackReportConfig.excludeOwnerNames` (roster
+  display names, case-insensitive) filters them out in `build.ts` before any data loads, so an
+  excluded rep never skews `TEAM TOTAL` either. Used to drop a player-coach manager from his own
+  team's report.
+- **Delivery is a Slack Incoming Webhook POST carrying a Block Kit message — no bot token, no file
+  upload, no image, no headless browser.** `lib/slackReports/blockKit.ts` `buildCallBlitzBlocks()`
+  is a pure function producing `{blocks, text}`: a `header` block, a `context` block (report date,
+  🧪 marker on a test send), one `section` block per rep (bold name + a compact stat line — avoids
+  the fixed-width monospace alignment that broke on mobile in an earlier version), and a final
+  `section` for `TEAM TOTAL`. `text` is the required plain-text fallback (notifications/
+  accessibility) — a short one-line summary, never the full table. `lib/slackReports/deliver.ts`
+  `sendSlackMessage()` resolves the webhook URL from `process.env[envVarKey]` at send time only
+  (`config/slack-reports.ts` entries name a `channelEnvVar`, e.g. `SLACK_VAIBHAV_WEBHOOK` — never
+  the URL itself) and POSTs the JSON payload; errors name the channel label + env var **key name**,
+  never the resolved URL.
+- **"Run Now"/"Send Test" run inline in the server action — no GitHub Actions dispatch, no
+  background job.** A webhook POST has no browser dependency, so `app/slack-reports/actions.ts`
+  calls `lib/slackReports/run.ts`'s `runOneReport()` directly and awaits it; the result lands in
+  Slack synchronously, before the button's own request resolves. No run history is persisted
+  anywhere — the message in Slack (or the toast's error text, on failure) is the record.
 
 ## Derived-metric definitions (`lib/sync/aggregate.ts` unless noted)
 

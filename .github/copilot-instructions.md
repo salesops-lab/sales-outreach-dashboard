@@ -47,7 +47,7 @@ footprint (repo `salesops-lab/sdr-outreach-dashboard`, salesops Vercel project, 
   - Single file: `npm test -- --run tests/temperature.test.ts`
   - By name: `npm test -- --run -t "temperature"`
   - Watch mode: `npx vitest tests/temperature.test.ts` (drop the `--run`)
-- **Test coverage:** `tests/` covers pure logic only — 25 files / 245 tests: US/Eastern bucketing with DST (+ `periodBounds`), aggregation (incl. GD grouping + deal integration + V3 event-truth demos/pipeline + range windows), activity/deal→company association (+ orphan-heal fallback), temperature classification, the canonical deal-stage engine (+ V3 active/parked/demo-completed predicates), stage-event extraction, demo-status segmentation, Deal Health, Forecast v1, integrity checks, the account-timeline builder, the calling drill-down builder, the embedding chunk composer, pod/team filters, call-quality mapping, spine row mappers, RBAC scope decision, agent detector/prompt/ranking, and the auth-domain rule. Never import `server-only` modules in tests; they throw under Vitest.
+- **Test coverage:** `tests/` covers pure logic only — 26 files / 250 tests: US/Eastern bucketing with DST (+ `periodBounds`), aggregation (incl. GD grouping + deal integration + V3 event-truth demos/pipeline + range windows), activity/deal→company association (+ orphan-heal fallback), temperature classification, the canonical deal-stage engine (+ V3 active/parked/demo-completed predicates), stage-event extraction, demo-status segmentation, Deal Health, Forecast v1, integrity checks, the account-timeline builder, the calling drill-down builder, the embedding chunk composer, pod/team filters, call-quality mapping, spine row mappers, RBAC scope decision, agent detector/prompt/ranking, the auth-domain rule, and the Slack Reports Call Blitz fold. Never import `server-only` modules in tests; they throw under Vitest.
 
 ## Architecture Overview
 
@@ -163,6 +163,29 @@ Shared types across modules:
 - `lib/callquality/types.ts` — read-only call-scoring merge (BANTIC, coaching snapshots)
 - `lib/agent/types.ts` — AI agent I/O (hot-account detection, reasoning, watches)
 
+## Slack Reports (`lib/slackReports/*`, admin-only, `/slack-reports`)
+
+On-demand Slack sharing — **no automatic schedule, no database**. First report type: **Call Blitz**
+(Calls/Emails/Total Touches/Connected/High Intent/Low Intent/Not Interested/Referral/Demos/Meeting
+per rep + totals). Gated exactly like `/admin` (`viewer.isAdmin` + `lib/access/requireAdmin.ts` in
+every server action). **Total Touches = Calls + Emails** (verbatim from `lib/sync/temperature.ts`);
+all disposition counts reuse `config/dispositions.ts` predicates directly — no parallel
+calculation. Demos is deal-stage-driven (`demoScheduledMs()`), Meeting is call-outcome-driven
+(Meeting Scheduled OR Rescheduled) — deliberately different data sources. Reporting date is always
+the dashboard's own ET "today," computed fresh at click time. **Report config is code, not a
+database table** — `config/slack-reports.ts` (`SLACK_REPORTS`) lists team/channel per report;
+adding a team is a code change + redeploy (deliberately not admin-editable, for a small fixed set
+of teams). A report can drop specific reps entirely via `excludeOwnerNames` (filtered in
+`build.ts` before any data loads, so it never skews `TEAM TOTAL` either). **Delivery is a Slack
+Incoming Webhook POST carrying a Block Kit message — no bot token, no file upload, no image, no
+headless browser.** `lib/slackReports/blockKit.ts` renders a `header` + `context` + one `section`
+block per rep (bold name, compact stat line) + a `TEAM TOTAL` section, plus a required plain-text
+fallback; `deliver.ts`'s `sendSlackMessage()` posts it to the webhook URL resolved from
+`process.env[envVarKey]` at send time only (each config entry names a `channelEnvVar`, never the
+URL). **"Run Now"/"Send Test" run inline** in `app/slack-reports/actions.ts` → `lib/slackReports/
+run.ts`'s `runOneReport()` — no GitHub Actions dispatch, no background job, since a webhook POST
+has no browser dependency. Results land in Slack synchronously.
+
 ## Environment & Secrets
 
 Secrets live **only in `.env.local` (gitignored) and Vercel/GitHub secrets** — never in code.
@@ -177,6 +200,7 @@ Optional:
 - `OPENAI_API_KEY` (agent reasoning; optional model override: `OPENAI_MODEL`, default `gpt-4o-mini`)
 - `BLOB_READ_WRITE_TOKEN` (Vercel Blob fallback for snapshot storage)
 - `GH_DISPATCH_TOKEN` (GitHub Actions secret — a PAT with `actions:write`; **required** for the delta heartbeat's self-redispatch and the admin add-user owner-pull. Also lives in Vercel env for the server-action path)
+- `SLACK_<NAME>_WEBHOOK` per `config/slack-reports.ts` entry (e.g. `SLACK_VAIBHAV_WEBHOOK`) — a plain Incoming Webhook URL, server-only, read only by `lib/slackReports/deliver.ts` at send time; lives in Vercel env since Slack Reports sends run inline in a server action
 
 **Production fails closed (503)** if `NEXT_PUBLIC_SUPABASE_*` vars are missing. Local dev without them runs ungated, spine/call-quality disabled.
 
@@ -241,10 +265,11 @@ The hot-account agent runs every 2 hours (GitHub Actions), reads-only on HubSpot
   - `lib/access/` — RBAC scope decision
   - `lib/callquality/` — read-only call-scoring merge
   - `lib/agent/` — AI agent (detect, reason, store)
+  - `lib/slackReports/` — Slack Reports engine (metrics fold, assembly, Block Kit format, webhook delivery)
   - `lib/auth/` — auth domain rule
   - `lib/supabase/` — Supabase client (admin = server-only)
-- `config/` — dispositions, HubSpot portal, canonical deal stages (`deal-stages.ts`); `reps`/`team-structure` are the roster seed/fallback (the DB is authoritative)
-- `tests/` — Vitest, 25 files / 245 tests, pure logic only (full inventory in CLAUDE.md's Commands section)
+- `config/` — dispositions, HubSpot portal, canonical deal stages (`deal-stages.ts`); `reps`/`team-structure` are the roster seed/fallback (the DB is authoritative); `slack-reports.ts` is the Slack Reports config (code, not a DB table)
+- `tests/` — Vitest, 26 files / 250 tests, pure logic only (full inventory in CLAUDE.md's Commands section)
 - `scripts/` — CLI scripts (sync, agent, verify-schema)
 - `supabase/` — SQL schema + RLS floor
 
