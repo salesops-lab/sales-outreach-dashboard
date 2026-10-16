@@ -18,7 +18,7 @@ export interface AoMeta {
   period: { from: number; to: number };
   options: {
     account_owners: { id: string; name: string }[];
-    members: { team: string; owner_id: string; name: string }[];      // roster members per team (DB-backed)
+    members: { team: string; owner_id: string; name: string }[];      // HubSpot team members per team
     activity_owners: { id: string; name: string }[];                  // anyone who logged activity on these accounts
     gd_names: { value: string; count: number }[];
     countries: { value: string; count: number }[];
@@ -54,6 +54,16 @@ const countBy = (vals: string[]) => {
   return [...m].map(([value, count]) => ({ value, count }));
 };
 
+/** Active owners in each of the four HubSpot teams (an owner in two teams is listed under both). */
+function teamMembers(prep: Prepared): { team: string; owner_id: string; name: string }[] {
+  const out: { team: string; owner_id: string; name: string }[] = [];
+  for (const [id, o] of Object.entries(prep.data.state.owners ?? {})) {
+    if (!o.active) continue;
+    for (const t of AO_TEAMS) if ((o.teams ?? []).includes(t.hubspotTeamId)) out.push({ team: t.value, owner_id: id, name: o.name });
+  }
+  return out;
+}
+
 const optCache = new WeakMap<Prepared, AoMeta["options"]>();
 function options(prep: Prepared): AoMeta["options"] {
   const hit = optCache.get(prep);
@@ -68,8 +78,7 @@ function options(prep: Prepared): AoMeta["options"] {
   const byValue = (a: { value: string }, b: { value: string }) => a.value.localeCompare(b.value);
   const out: AoMeta["options"] = {
     account_owners: [...owners].map((id) => ({ id, name: prep.ownerName(id) })).sort(byName),
-    members: AO_TEAMS.flatMap((t) => prep.data.roster.filter((r) => r.active && r.podKey === t.podKey)
-      .map((r) => ({ team: t.value, owner_id: r.ownerId, name: r.name }))),
+    members: teamMembers(prep).sort(byName),
     activity_owners: [...actOwners].map((id) => ({ id, name: prep.ownerName(id) })).sort(byName),
     gd_names: countBy(inScope.map((p) => p.gdName ?? "").filter(Boolean)).sort(byValue),
     countries: countBy(inScope.map((p) => p.country)).sort((a, b) => b.count - a.count),
@@ -139,19 +148,16 @@ export function computeView(prep: Prepared, f: AoFilters, view: AoView, o: ListO
     work.set(a.owner_id, w);
   }
   const teamSet = new Set(f.teams.length ? f.teams : AO_TEAMS.map((x) => x.value));
-  const podTeam = new Map<string, string>(AO_TEAMS.map((x) => [x.podKey, x.value]));
-  const rosterIds = prep.data.roster
-    .filter((r) => r.active && r.podKey && teamSet.has(podTeam.get(r.podKey) ?? ""))
-    .map((r) => r.ownerId);
-  const ids = new Set<string>([...rosterIds, ...work.keys()]);
+  const memberIds = teamMembers(prep).filter((m) => teamSet.has(m.team)).map((m) => m.owner_id);
+  const ids = new Set<string>([...memberIds, ...work.keys()]);
   if (f.member) for (const id of [...ids]) if (id !== f.member) ids.delete(id);
   const members = [...ids].map((id) => {
     const w = work.get(id);
     const touch = (w?.calls ?? 0) + (w?.emails ?? 0);
     const worked = w?.accounts.size ?? 0;
-    const r = prep.rosterById.get(id);
+    const team = prep.teamOfOwner(id);
     return {
-      owner_id: id, name: prep.ownerName(id), team: r?.podKey ? podTeam.get(r.podKey) ?? null : null, on_roster: !!r,
+      owner_id: id, name: prep.ownerName(id), team, in_team: team != null,
       accounts_owned: owned.get(id) ?? 0, accounts_worked: worked,
       calls: w?.calls ?? 0, emails: w?.emails ?? 0, touchpoints: touch,
       touch_per_account: worked ? touch / worked : null,

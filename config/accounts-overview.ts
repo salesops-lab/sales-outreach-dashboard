@@ -1,41 +1,36 @@
 /**
- * Accounts Overview — verified HubSpot sources (portal 242626590), checked twice on 2026-10-16
- * (pass 1: CRM reporting/SQL group-bys; pass 2: CRM Search API totals — they matched).
+ * Accounts Overview — verified HubSpot sources (portal 242626590).
  *
- * ASSIGNED TEAM is the company property `team_accounts` (enumeration). Live options:
- * Archit · Neelima · Saarthak · Central · Prince. It is INDEPENDENT of the company owner
- * (most team accounts are owned by the `salesops .` placeholder user) and of the roster's
- * owner→AE-pod mapping — never derive one from the other.
- *
- * Only the four teams below are in scope for this view. Archit is a real `team_accounts`
- * value but deliberately excluded (the request named four teams); it is reported, not hidden.
+ * TEAM = the company's **HubSpot Team** (`hubspot_team_id`), which HubSpot sets from the company
+ * owner's team (Settings → Users & Teams). This is the "Team" a user filters on in HubSpot — the
+ * user confirmed Saarthak = 5,502 companies on 2026-10-16. (The separate hand-filled `team_accounts`
+ * dropdown was used first and gave far smaller numbers — don't go back to it.)
+ * Team MEMBERS likewise come from HubSpot team membership (/crm/v3/owners → teams).
  */
-
-/** `team_accounts` option value → the roster pod key (`sdr_pods.pod_key`) used for the
- *  activity-owner "roster pod" lens. Keys are the HubSpot option VALUES (case-sensitive). */
 export const AO_TEAMS = [
-  { value: "Neelima", label: "Neelima Team", podKey: "neelima" },
-  { value: "Prince", label: "Prince Team", podKey: "prince" },
-  { value: "Saarthak", label: "Saarthak Team", podKey: "saarthak" },
-  { value: "Central", label: "Central Team", podKey: "central" },
+  { value: "Neelima", label: "Neelima Team", hubspotTeamId: "362172280" },
+  { value: "Prince", label: "Prince Team", hubspotTeamId: "362172539" },
+  { value: "Saarthak", label: "Saarthak Team", hubspotTeamId: "362172393" },
+  { value: "Central", label: "Central Team", hubspotTeamId: "362172526" },
 ] as const;
 
-/** `team_accounts` values that exist in HubSpot but are out of this view's scope. */
-export const AO_EXCLUDED_TEAMS = ["Archit"] as const;
+/** HubSpot team id → our team value (null when outside the four teams). */
+export const teamValueById = (id: string | null | undefined): string | null =>
+  AO_TEAMS.find((t) => t.hubspotTeamId === String(id ?? "").trim())?.value ?? null;
 
 /** How far back the sync keeps activities (calls/emails/meetings/notes/tasks). Covers the
- *  60/90-day thresholds, the rolling 3 months, and custom ranges inside it. Inactivity itself
+ *  60-day threshold, the rolling 3 months, and custom ranges inside it. Inactivity itself
  *  uses HubSpot's own all-history date properties, NOT this window. */
 export const AO_ACTIVITY_WINDOW_DAYS = 180;
 
-/** Default inactivity thresholds (days). Both are adjustable in the UI. */
+/** Inactivity thresholds (days). */
 export const AO_INACTIVE_DAYS = 60;
 export const AO_DEEP_INACTIVE_DAYS = 90;
 
 /** Company properties read by the Accounts Overview sync (all verified to exist). */
 export const AO_COMPANY_PROPERTIES = [
   "name", "domain", "country", "state", "city",
-  "hubspot_owner_id", "team_accounts", "icp",
+  "hubspot_owner_id", "hubspot_team_id", "icp",
   "type_of_dealership", "is_this_is_a_part_of_group_dealership_",
   "gd_id", "gd_name", "dealership_group_name",
   "notes_last_updated",     // "Last Activity Date" — HubSpot-maintained, any logged activity incl. notes

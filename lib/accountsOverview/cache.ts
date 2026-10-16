@@ -1,9 +1,8 @@
 /** Server-side cache of the prepared Accounts Overview dataset (server-only: pulls supabaseAdmin).
  *  Every request does one cheap read of the sync-state row; the full dataset is re-read only when
- *  a sync has finished since the cached copy was taken (or after the TTL, for roster edits). So a
+ *  a sync has finished since the cached copy was taken (or after a 5-min TTL). So a
  *  completed sync shows up on the next request, and every filter change is computed in memory. */
-import { loadTeamStructure } from "../team/load";
-import { prepare, Prepared, RosterRef } from "./compute";
+import { prepare, Prepared } from "./compute";
 import { loadAoRows, loadAoState } from "./store";
 import { AoSyncState } from "./types";
 
@@ -20,9 +19,8 @@ export async function getPrepared(opts?: { fresh?: boolean }): Promise<Prepared>
   if (!opts?.fresh && cache && state.status === "running" && cache.prep.data.state.status !== "running") return cache.prep;
   if (inflight) return inflight;
   inflight = (async () => {
-    const [rows, fresh, ts] = await Promise.all([loadAoRows(), loadAoState(), loadTeamStructure()]);
-    const roster: RosterRef[] = ts.members.map((m) => ({ ownerId: m.ownerId, name: m.name, podKey: m.aePod, kind: m.kind, active: m.active }));
-    const prep = prepare({ ...rows, state: fresh, roster });
+    const [rows, fresh] = await Promise.all([loadAoRows(), loadAoState()]);
+    const prep = prepare({ ...rows, state: fresh });
     cache = { prep, at: Date.now(), version: versionOf(fresh) };
     return prep;
   })();

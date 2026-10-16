@@ -166,9 +166,9 @@ Shared types across modules:
 ## Accounts Overview (`lib/accountsOverview/*`, `/accounts-overview`)
 
 Isolated feature (own `sdr_ao_*` tables, own `npm run ao:sync` + `accounts-overview-sync.yml`, own API) — never
-reads/writes the spine tables or the snapshot. **Assigned team = company `team_accounts`** (four in-scope teams in
-`config/accounts-overview.ts`; Archit excluded and reported) — independent of account owner, activity owner, contact
-owner and roster pod, which stay separate everywhere. Simple UI by user decision: one HubSpot-style filter bar + two
+reads/writes the spine tables or the snapshot. **Team = the company's HubSpot Team** (`hubspot_team_id`; four team ids in
+`config/accounts-overview.ts`; members from HubSpot team membership) — never the hand-filled `team_accounts` dropdown.
+Account owner, activity owner and contact owner stay separate everywhere. Simple UI by user decision: one HubSpot-style filter bar + two
 tabs (Accounts: 8 cards drilling one list; Pipeline & Activity) — don't re-add repetitive tabs. Type: GD Name set →
 Group, else Type of Dealership (Franchise / Independent). Touchpoints = calls + emails. Pure, tested engine in
 `compute.ts`/`views.ts`; card counts and drill lists share `drillMatch`. Last Activity Date = `notes_last_updated`;

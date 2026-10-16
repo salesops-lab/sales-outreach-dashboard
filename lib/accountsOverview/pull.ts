@@ -2,14 +2,13 @@
  * Accounts Overview — HubSpot reads (sync-time only; the app never calls HubSpot at request time).
  * Reuses the shared hubspotFetch layer (retries 429 / 5xx / network errors, 300ms spacing).
  *
- * Shape of the pull (company-centric, so ANY owner's work on a team account is captured — the
- * main spine only holds tracked reps' activity):
- *   1. companies where team_accounts = <team>  (one Search per team, each far below the 10k cap;
- *      the Search `total` is kept for reconciliation and a near-cap result FAILS the run)
- *   2. company → contacts / deals / calls / emails / meetings / notes / tasks  (v4 batch reads,
- *      per-record paging followed so no association list is truncated)
- *   3. contact → calls / emails / meetings / notes / tasks  (activity logged on a contact only)
- *   4. v3 batch reads of every referenced object; activities outside the window are dropped.
+ * Shape of the pull:
+ *   1. companies where HubSpot Team = <team id>, paged by an hs_object_id cursor so a team larger
+ *      than the 10k Search cap (Neelima ≈ 14k) is still read completely; the first page's `total`
+ *      is kept for reconciliation.
+ *   2. company → contacts / deals (v4 batch reads, per-record paging followed).
+ *   3. calls / emails / meetings / notes / tasks inside the activity window, via Search sliced by
+ *      hs_timestamp (slices auto-split below the 10k cap), then activity → companies / contacts.
  */
 import { hubspotGet, hubspotPost, RATE_LIMIT_DELAY_MS, delay } from "../hubspot/client";
 import { STAGE_DATE_PROPERTIES } from "../sync/stage-events";
@@ -21,6 +20,7 @@ const ASSOC_BATCH = 1000;
 const OBJ_BATCH = 100;
 
 export interface HsRecord { id: string; properties: Record<string, string | null> }
+interface SearchRes { total?: number; results: HsRecord[]; paging?: { next?: { after?: string } } }
 
 const chunk = <T,>(arr: T[], n: number): T[][] => {
   const out: T[][] = [];
@@ -28,40 +28,80 @@ const chunk = <T,>(arr: T[], n: number): T[][] => {
   return out;
 };
 
-/** All companies with team_accounts = value. Returns HubSpot's own `total` for reconciliation. */
-export async function searchTeamCompanies(team: string): Promise<{ total: number; records: HsRecord[] }> {
+/** All companies whose HubSpot Team is `teamId`. Pages past the 10k Search cap with an
+ *  hs_object_id cursor (each window restarts the search after the last id seen). */
+export async function searchTeamCompanies(teamId: string): Promise<{ total: number; records: HsRecord[] }> {
   const records: HsRecord[] = [];
-  let after: string | undefined;
-  let total = 0;
-  do {
-    const body: Record<string, unknown> = {
-      filterGroups: [{ filters: [{ propertyName: "team_accounts", operator: "EQ", value: team }] }],
-      sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }],
-      properties: AO_COMPANY_PROPERTIES,
-      limit: 100,
-    };
-    if (after) body.after = after;
-    const res = await hubspotPost<{ total?: number; results: HsRecord[]; paging?: { next?: { after?: string } } }>(
-      "/crm/v3/objects/companies/search", body);
-    total = res.total ?? total;
-    if (total >= SEARCH_CAP) {
-      throw new Error(`team_accounts=${team} has ${total} companies — at the Search 10k ceiling; refusing a truncated pull`);
-    }
-    records.push(...res.results);
-    after = res.paging?.next?.after;
-    await delay(RATE_LIMIT_DELAY_MS);
-  } while (after);
-  return { total, records };
+  let total = -1;
+  let lastId = "0";
+  for (;;) {
+    let after: string | undefined;
+    let inWindow = 0;
+    let more = false;
+    do {
+      const body: Record<string, unknown> = {
+        filterGroups: [{ filters: [
+          { propertyName: "hubspot_team_id", operator: "EQ", value: teamId },
+          { propertyName: "hs_object_id", operator: "GT", value: lastId },
+        ] }],
+        sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }],
+        properties: AO_COMPANY_PROPERTIES,
+        limit: 100,
+      };
+      if (after) body.after = after;
+      const res = await hubspotPost<SearchRes>("/crm/v3/objects/companies/search", body);
+      if (total < 0) total = res.total ?? 0;
+      records.push(...res.results);
+      inWindow += res.results.length;
+      after = res.paging?.next?.after;
+      await delay(RATE_LIMIT_DELAY_MS);
+      if (after && inWindow >= SEARCH_CAP) { more = true; break; }
+    } while (after);
+    if (!more) break;
+    lastId = records[records.length - 1].id;
+  }
+  return { total, records: [...new Map(records.map((r) => [r.id, r])).values()] };
 }
 
-/** Count-only Search (limit 1) — for teams outside scope, reported but not pulled. */
-export async function countTeamCompanies(team: string): Promise<number> {
-  const res = await hubspotPost<{ total?: number }>("/crm/v3/objects/companies/search", {
-    filterGroups: [{ filters: [{ propertyName: "team_accounts", operator: "EQ", value: team }] }],
-    properties: ["name"], limit: 1,
-  });
-  await delay(RATE_LIMIT_DELAY_MS);
-  return res.total ?? 0;
+/** Activities of one type with hs_timestamp in [fromMs, toMs). Weekly slices, each split in half
+ *  until it is under the 10k Search cap — no slice can silently truncate. */
+export async function searchActivities(object: string, properties: string[], fromMs: number, toMs: number): Promise<HsRecord[]> {
+  const out = new Map<string, HsRecord>();
+  const WEEK = 7 * 86_400_000;
+  const slice = async (a: number, b: number): Promise<void> => {
+    const page = async (after?: string) => {
+      const body: Record<string, unknown> = {
+        filterGroups: [{ filters: [
+          { propertyName: "hs_timestamp", operator: "GTE", value: String(a) },
+          { propertyName: "hs_timestamp", operator: "LT", value: String(b) },
+        ] }],
+        sorts: [{ propertyName: "hs_timestamp", direction: "ASCENDING" }],
+        properties, limit: 100,
+      };
+      if (after) body.after = after;
+      const res = await hubspotPost<SearchRes>(`/crm/v3/objects/${object}/search`, body);
+      await delay(RATE_LIMIT_DELAY_MS);
+      return res;
+    };
+    const first = await page();
+    if ((first.total ?? 0) >= SEARCH_CAP && b - a > 60_000) {
+      const mid = a + Math.floor((b - a) / 2);
+      await slice(a, mid);
+      await slice(mid, b);
+      return;
+    }
+    for (const r of first.results) out.set(r.id, r);
+    let after = first.paging?.next?.after;
+    while (after) {
+      const res = await page(after);
+      for (const r of res.results) out.set(r.id, r);
+      after = res.paging?.next?.after;
+    }
+  };
+  for (let a = fromMs; a < toMs; a += WEEK) {
+    await slice(a, Math.min(a + WEEK, toMs));
+  }
+  return [...out.values()];
 }
 
 interface V4Res {
@@ -122,18 +162,19 @@ export const DEAL_PROPS = [
   ...STAGE_DATE_PROPERTIES,
 ];
 
-/** Every owner incl. archived ones (so former reps still resolve to a name). */
-export async function pullAllOwners(): Promise<Record<string, { name: string; active: boolean }>> {
-  const out: Record<string, { name: string; active: boolean }> = {};
+/** Every owner incl. archived ones (so former reps still resolve to a name), with their HubSpot
+ *  team ids — the source of each team's member list. */
+export async function pullAllOwners(): Promise<Record<string, { name: string; active: boolean; teams: string[] }>> {
+  const out: Record<string, { name: string; active: boolean; teams: string[] }> = {};
   for (const archived of [false, true]) {
     let after: string | undefined;
     do {
-      const res = await hubspotGet<{ results: { id: string; firstName?: string; lastName?: string; email?: string }[]; paging?: { next?: { after?: string } } }>(
+      const res = await hubspotGet<{ results: { id: string; firstName?: string; lastName?: string; email?: string; teams?: { id: string | number }[] }[]; paging?: { next?: { after?: string } } }>(
         `/crm/v3/owners?limit=100&archived=${archived}${after ? `&after=${after}` : ""}`);
       for (const o of res.results) {
         if (out[o.id] && !archived) continue;
         const name = [o.firstName, o.lastName].filter(Boolean).join(" ").trim() || o.email || `Owner ${o.id}`;
-        out[o.id] = { name, active: !archived };
+        out[o.id] = { name, active: !archived, teams: (o.teams ?? []).map((t) => String(t.id)) };
       }
       after = res.paging?.next?.after;
       await delay(RATE_LIMIT_DELAY_MS);

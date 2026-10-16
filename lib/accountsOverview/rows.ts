@@ -1,5 +1,6 @@
 /** Accounts Overview — pure HubSpot record → sdr_ao_* row mappers (no I/O; unit-tested). */
 import { stageKey, AUTO_PIPELINE_ID } from "../../config/deal-stages";
+import { teamValueById } from "../../config/accounts-overview";
 import { stageEventsOf } from "../sync/stage-events";
 import { demoScheduledMs, demoCompletedMs } from "../sync/aggregate";
 import { Deal } from "../sync/types";
@@ -27,7 +28,7 @@ const intOf = (v: string | null | undefined): number | null => {
 export function companyRow(id: string, p: Props): AoCompanyRow {
   return {
     hs_id: id, name: str(p.name), domain: str(p.domain), country: str(p.country), state: str(p.state), city: str(p.city),
-    owner_id: str(p.hubspot_owner_id), team: str(p.team_accounts), icp: str(p.icp),
+    owner_id: str(p.hubspot_owner_id), team: teamValueById(p.hubspot_team_id), icp: str(p.icp),
     type_of_dealership: str(p.type_of_dealership), is_group: str(p.is_this_is_a_part_of_group_dealership_),
     gd_id: str(p.gd_id), gd_name: str(p.gd_name), group_name: str(p.dealership_group_name),
     last_activity_ms: msOf(p.notes_last_updated), last_contacted_ms: msOf(p.notes_last_contacted),

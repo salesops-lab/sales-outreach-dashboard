@@ -6,13 +6,12 @@
  * Reconciliation is built in (the "check twice" rule, at run time):
  *   - per team: HubSpot Search `total` vs records pulled vs rows re-counted in Postgres afterwards
  *   - contacts: Σ HubSpot num_associated_contacts vs association rows actually read
- *   - excluded teams (Archit): counted and reported, never silently dropped
  */
 import { supabaseAdmin } from "../supabase/admin";
-import { AO_ACTIVITY_WINDOW_DAYS, AO_EXCLUDED_TEAMS, AO_TEAMS } from "../../config/accounts-overview";
+import { AO_ACTIVITY_WINDOW_DAYS, AO_TEAMS } from "../../config/accounts-overview";
 import {
-  ACTIVITY_OBJECTS, associations, batchRead, CONTACT_PROPS, countTeamCompanies, DEAL_PROPS,
-  pullAllOwners, searchTeamCompanies,
+  ACTIVITY_OBJECTS, associations, batchRead, CONTACT_PROPS, DEAL_PROPS,
+  pullAllOwners, searchActivities, searchTeamCompanies,
 } from "./pull";
 import { activityRow, companyRow, contactRow, dealRow } from "./rows";
 import { AO_TABLES, loadAoState, pruneStale, saveAoState, upsertRun } from "./store";
@@ -45,14 +44,10 @@ export async function runAccountsOverviewSync(nowMs = Date.now()): Promise<{ ran
     const recon: AoReconRow[] = [];
     const companies = new Map<string, AoCompanyRow>();
     for (const team of AO_TEAMS) {
-      const { total, records } = await searchTeamCompanies(team.value);
+      const { total, records } = await searchTeamCompanies(team.hubspotTeamId);
       for (const r of records) companies.set(r.id, companyRow(r.id, r.properties));
       recon.push({ check: "team_companies", team: team.value, hubspot: total, stored: records.length, ok: total === records.length });
       console.log(`[ao] team ${team.value}: HubSpot total ${total}, pulled ${records.length}`);
-    }
-    for (const t of AO_EXCLUDED_TEAMS) {
-      const n = await countTeamCompanies(t);
-      recon.push({ check: "excluded_team", team: t, hubspot: n, stored: 0, ok: true, note: "team_accounts value outside the four in-scope teams — not pulled" });
     }
     const companyIds = [...companies.keys()];
 
@@ -76,28 +71,28 @@ export async function runAccountsOverviewSync(nowMs = Date.now()): Promise<{ ran
     const deals = dealRecs.map((r) => dealRow(r.id, r.properties, coDeals.get(r.id) ?? [])).filter(Boolean) as AoDealRow[];
     console.log(`[ao] deals: ${deals.length} Auto-Pipeline of ${dealRecs.length} associated`);
 
-    // 4. activities: direct company associations + contact-only associations, deduped by id.
+    // 4. activities in the window (Search by hs_timestamp), then activity → companies / contacts.
+    // Direct in-scope company associations win; only when there are none is the activity attributed
+    // through its in-scope contacts' companies (flagged via_contact_only). Out-of-scope → dropped.
     const activities: AoActivityRow[] = [];
     const counts: Record<string, number> = {};
     for (const obj of ACTIVITY_OBJECTS) {
-      const direct = invert(await associations("companies", obj.object, companyIds));
-      const viaContact = invert(await associations("contacts", obj.object, contactIds));
-      const ids = [...new Set([...direct.keys(), ...viaContact.keys()])];
-      const recs = await batchRead(obj.object, ids, obj.properties, obj.object);
-      let kept = 0, outside = 0, undated = 0;
+      const recs = await searchActivities(obj.object, obj.properties, windowStart, nowMs + DAY_MS);
+      const ids = recs.map((r) => r.id);
+      const toCos = await associations(obj.object, "companies", ids);
+      const toCts = await associations(obj.object, "contacts", ids);
+      let kept = 0, undated = 0;
       for (const r of recs) {
-        const directCos = direct.get(r.id) ?? [];
-        const cts = viaContact.get(r.id) ?? [];
-        // Direct in-scope company associations win; only when there are none is the activity
-        // attributed through its contacts' in-scope companies (flagged via_contact_only).
+        const directCos = (toCos.get(r.id) ?? []).filter((id) => companies.has(id));
+        const cts = (toCts.get(r.id) ?? []).filter((id) => contactCos.has(id));
         const cos = directCos.length ? directCos : [...new Set(cts.flatMap((c) => contactCos.get(c) ?? []))];
+        if (cos.length === 0) continue; // not on one of the four teams' accounts
         const row = activityRow(obj.type, r.id, r.properties, cos, cts, directCos.length === 0);
         if (!row) { undated++; continue; }
-        if (row.ts_ms < windowStart || row.ts_ms > nowMs + DAY_MS) { outside++; continue; }
         activities.push(row); kept++;
       }
       counts[`${obj.type}s`] = kept;
-      console.log(`[ao] ${obj.object}: ${ids.length} associated, ${recs.length} read, ${kept} in window, ${outside} outside, ${undated} undated`);
+      console.log(`[ao] ${obj.object}: ${recs.length} in window portal-wide, ${kept} on team accounts, ${undated} undated`);
     }
 
     // 5. write + prune rows from earlier runs

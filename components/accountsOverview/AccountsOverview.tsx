@@ -182,7 +182,7 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-xl font-extrabold tracking-tight text-ink">Accounts Overview</h1>
-            <p className="text-xs text-ink-muted">Neelima · Prince · Saarthak · Central team accounts, from HubSpot</p>
+            <p className="text-xs text-ink-muted">Companies in the Neelima · Prince · Saarthak · Central HubSpot Teams</p>
           </div>
           <div className="flex items-center gap-2 text-xs">
             {meta && (
@@ -450,7 +450,7 @@ function PipelineTab({ data }: { data: any }) {
             </tr></thead>
             <tbody>{data.members.map((m: any) => (
               <tr key={m.owner_id} className="border-b border-line/60">
-                <td className="px-2 py-1.5">{m.name}{!m.on_roster && <span className="ml-1 text-[10px] text-ink-subtle">(not on roster)</span>}</td>
+                <td className="px-2 py-1.5">{m.name}{!m.in_team && <span className="ml-1 text-[10px] text-ink-subtle">(not in these teams)</span>}</td>
                 <td className="px-2 py-1.5">{m.team ?? "—"}</td>
                 <td className="px-2 py-1.5 text-right font-mono">{fmt(m.accounts_owned)}</td>
                 <td className="px-2 py-1.5 text-right font-mono">{fmt(m.accounts_worked)}</td>
