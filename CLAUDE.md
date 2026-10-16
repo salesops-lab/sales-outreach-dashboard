@@ -592,7 +592,7 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   (`lib/accountsOverview/pull.ts` + `sync.ts`, full rebuild with `run_id` pruning). Don't route it
   through `sdr_companies`/`sdr_activities`, and don't route spine metrics through `sdr_ao_*`.
 - **Pure engine**: `compute.ts` (filters, per-account calc, tally, drill predicates, DQ checks) and
-  `views.ts` (per-tab payloads) are I/O-free and tested; the API caches the prepared dataset 5 min
+  `views.ts` (per-tab payloads) are I/O-free and tested; the API caches the prepared dataset until the sync-state row changes (5-min cap)
   (`cache.ts`) and computes every filter change in memory. KPI counts and drill lists share one
   predicate (`drillMatch`) so they always agree.
 - **Classification** (`classify.ts`): GD = GD association (`gd_id`‖`dealership_group_name`, the
