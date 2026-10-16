@@ -10,6 +10,8 @@ import { calcAccount, contactRows, toActivityRow, toListRow } from "../../../../
 import { parseRequest } from "../../../../../lib/accountsOverview/params";
 
 export const dynamic = "force-dynamic";
+// Never let Next's data cache hold Supabase reads — a finished sync must show up immediately.
+export const fetchCache = "force-no-store";
 
 export async function GET(req: NextRequest, { params }: { params: { companyId: string } }) {
   let prep;

@@ -1,7 +1,7 @@
 /**
  * Accounts Overview — GET /api/accounts-overview?view=<tab>&<filters>[&format=csv]
  *
- * Reads the isolated sdr_ao_* tables (filled by `npm run ao:sync`), cached server-side for 5 min;
+ * Reads the isolated sdr_ao_* tables (filled by `npm run ao:sync`), cached server-side until the next completed sync (cache.ts);
  * every filter/tab change is an in-memory computation (lib/accountsOverview/views.ts) — HubSpot
  * is never called at request time. Auth: the global /api middleware gate.
  */
@@ -13,6 +13,8 @@ import { parseRequest, toCsv } from "../../../lib/accountsOverview/params";
 import { etDateStr } from "../../../lib/sync/buckets";
 
 export const dynamic = "force-dynamic";
+// Never let Next's data cache hold Supabase reads — a finished sync must show up immediately.
+export const fetchCache = "force-no-store";
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
