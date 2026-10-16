@@ -32,14 +32,6 @@ export const AO_ACTIVITY_WINDOW_DAYS = 180;
 export const AO_INACTIVE_DAYS = 60;
 export const AO_DEEP_INACTIVE_DAYS = 90;
 
-/**
- * Account-type rule strictness. HubSpot's `is_this_is_a_part_of_group_dealership_` flag is
- * frequently UNSET. With this on, a company with no GD association is only classed Single
- * Franchise / Independent when the flag is EXPLICITLY "No" — an unset flag lands in
- * Unknown/Needs Review instead of being assumed non-group.
- */
-export const AO_REQUIRE_EXPLICIT_NON_GD_FLAG = true;
-
 /** Company properties read by the Accounts Overview sync (all verified to exist). */
 export const AO_COMPANY_PROPERTIES = [
   "name", "domain", "country", "state", "city",

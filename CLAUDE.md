@@ -47,8 +47,8 @@ the full **lead→demo→closure funnel** + **intelligence** on top:
 Surfaces: **Overview** (`/`, the rep table + Demo funnel + SDR/AE toggle), **Accounts** (`/accounts`,
 owned book by demo-status with GD→rooftop→contact drill, Deal Health/Temperature + last-activity),
 **Intelligence** (`/attention` — a tabbed hub: Ask · Focus · Radar · Themes · Board, role-aware
-default tab, `?tab=` deep-links), **Accounts Overview** (`/accounts-overview` — eight sub-tabs,
-URL-synced filters), **Slack Reports** (`/slack-reports` — admin-only), **Admin**
+default tab, `?tab=` deep-links), **Accounts Overview** (`/accounts-overview` — one HubSpot-style filter bar +
+two tabs: Accounts · Pipeline & Activity), **Slack Reports** (`/slack-reports` — admin-only), **Admin**
 (`/admin`). Shared top-nav in `components/AppNav.tsx`.
 
 Read `README.md` for product definitions and setup. This file covers architecture and the
@@ -111,7 +111,7 @@ and the Intelligence 2.0 pure logic — signal prompt/coercion/rescan (`intel-si
 the Focus merge incl. revival-window edges (`intel-focus.test.ts`), and the Radar
 ranking incl. the zombie sink (`intel-radar.test.ts`); and the Slack Reports Call Blitz fold
 (`slack-reports.test.ts`); and the Accounts Overview classifiers + engine + params
-(`accounts-overview.test.ts`) — 27 files / 267 tests in all. Never
+(`accounts-overview.test.ts`) — 27 files / 264 tests in all. Never
 import a `server-only`-guarded module (`lib/supabase/admin.ts`,
 `lib/callquality/fetch.ts`, `lib/agent/openai|store|runner.ts`, `lib/slackReports/build.ts` — which
 transitively pulls in `supabaseAdmin` via `lib/spine/store.ts`/`lib/team/load.ts`) from a test — it
@@ -591,18 +591,24 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   are owned by the `salesops .` placeholder — so the feature has its own company-centric pull
   (`lib/accountsOverview/pull.ts` + `sync.ts`, full rebuild with `run_id` pruning). Don't route it
   through `sdr_companies`/`sdr_activities`, and don't route spine metrics through `sdr_ao_*`.
-- **Pure engine**: `compute.ts` (filters, per-account calc, tally, drill predicates, DQ checks) and
-  `views.ts` (per-tab payloads) are I/O-free and tested; the API caches the prepared dataset until the sync-state row changes (5-min cap)
+- **Deliberately simple UI (user decision, 2026-10-16)**: one filter bar (Team, Team member, GD Name,
+  Type of Dealership, Country, State, Account owner, Last Activity Date, Activity type, activity date
+  range) + two tabs — **Accounts** (8 cards that drill one searchable list) and **Pipeline & Activity**
+  (demos + deals by current stage, ICP contacted vs not, per-member accounts/touchpoints). An earlier
+  8-sub-tab version was rejected as repetitive — don't re-add tabs that restate the same numbers.
+- **Pure engine**: `compute.ts` (filters, per-account calc, tally, drill predicates) and
+  `views.ts` (the two tab payloads) are I/O-free and tested; the API caches the prepared dataset until the sync-state row changes (5-min cap)
   (`cache.ts`) and computes every filter change in memory. KPI counts and drill lists share one
   predicate (`drillMatch`) so they always agree.
-- **Classification** (`classify.ts`): GD = GD association (`gd_id`‖`dealership_group_name`, the
-  `unitKeyFor` rule) + a GD name; SF/Independent need an explicit non-GD flag
-  (`AO_REQUIRE_EXPLICIT_NON_GD_FLAG`); everything else is Unknown with a reason.
+- **Classification** (`classify.ts`) mirrors the user's HubSpot filters: Group = **GD Name**
+  (`gd_name`) set; Single Franchise / Single Independent = GD Name empty + Type of Dealership; the
+  GD yes/no flag and `dealership_group_name` do NOT decide the type (unlike the spine's `unitKeyFor`).
 - **Two inactivity dates, never substituted**: company = `notes_last_updated`, rooftop =
   `rooftop_last_activity`. Missing ≠ 0 days ≠ never contacted; "Never contacted" requires HubSpot
   `notes_last_contacted` empty AND no synced touch.
 - **Counting**: calls = OUTBOUND, connected = `config/dispositions.ts`, emails = direction EMAIL,
-  meetings = meeting records (outcome only from `hs_meeting_outcome`), demos = the shared
+  **touchpoints = calls + emails** (same as Call Blitz Total Touches), meetings counted separately
+  (outcome only from `hs_meeting_outcome`), demos = the shared
   `demoScheduledMs`/`demoCompletedMs` over Auto-Pipeline deals; dedupe by activity/deal id.
 
 ## Derived-metric definitions (`lib/sync/aggregate.ts` unless noted)

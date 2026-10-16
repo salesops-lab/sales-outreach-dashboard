@@ -54,26 +54,23 @@ export default function AccountDetail({ id, qs, th, onClose }: { id: string; qs:
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-subtle">Account</div>
                 <Row k="Domain" v={a.domain} />
                 <Row k="Country / State / City" v={[a.country, a.state, a.city].filter(Boolean).join(" · ")} />
-                <Row k="Dealership type" v={<span title={a.type_reason ?? undefined}>{TYPE_LABEL[a.type]}</span>} />
-                {a.type_reason && <Row k="Why needs review" v={<span className="text-warn">{a.type_reason}</span>} />}
-                <Row k="Group Dealership" v={a.gd_name ? `${a.gd_name}${a.gd_id ? ` (GD ${a.gd_id})` : ""}` : "—"} />
-                <Row k="Rooftop identifier" v={<span className="font-mono">{a.rooftop_id}</span>} />
+                <Row k="Account type" v={TYPE_LABEL[a.type]} />
+                <Row k="Type of Dealership" v={d.raw.type_of_dealership ?? "—"} />
+                <Row k="GD Name" v={a.gd_name ?? "—"} />
                 <Row k="Company ICP" v={ICP_LABEL[a.icp]} />
-                <Row k="Raw HubSpot values" v={<span className="font-mono text-[10px]">type={d.raw.type_of_dealership ?? "∅"} · gdflag={d.raw.is_group ?? "∅"} · icp={d.raw.icp ?? "∅"}</span>} />
               </div>
               <div className="rounded-card border border-line bg-surface p-3 shadow-card">
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-subtle">Ownership (kept separate)</div>
                 <Row k="Account owner" v={a.owner_name} />
                 <Row k="Assigned team" v={a.team} />
-                <Row k="Activity owners (period)" v={a.activity_owners.join(", ") || "—"} />
-                <div className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-wide text-ink-subtle">Inactivity (measured independently)</div>
-                <Row k="Company last activity" v={<span>{etDay(a.company_last_activity_ms)} <StatusChip s={a.company_status} th={th} days={a.company_days} /></span>} />
-                <Row k="Rooftop last activity" v={<span>{etDay(a.rooftop_last_activity_ms)} <StatusChip s={a.rooftop_status} th={th} days={a.rooftop_days} /></span>} />
+                <Row k="Worked by (date range)" v={a.activity_owners.join(", ") || "—"} />
+                <div className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-wide text-ink-subtle">Activity</div>
+                <Row k="Last Activity Date" v={<span>{etDay(a.company_last_activity_ms)} <StatusChip s={a.company_status} th={th} days={a.company_days} /></span>} />
                 <Row k="HubSpot last contacted" v={etDay(a.last_contacted_ms)} />
                 <Row k="Never contacted (verified)" v={a.never_contacted ? "Yes" : "No"} />
               </div>
               <div className="rounded-card border border-line bg-surface p-3 shadow-card">
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-subtle">Reporting period</div>
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-subtle">Selected date range</div>
                 <Row k="Calls / connected" v={`${fmt(a.calls)} / ${fmt(a.connected)}`} />
                 <Row k="Emails" v={fmt(a.emails)} />
                 <Row k="Meetings" v={fmt(a.meetings)} />

@@ -32,12 +32,11 @@ export async function GET(req: NextRequest) {
   const parsed = parseRequest(sp, nowMs, prep.data.state.window_start_ms);
 
   if (parsed.csv) {
-    const view = parsed.view === "contacts" || parsed.view === "activities" ? parsed.view : "accounts";
-    const rows = exportRows(prep, parsed.filters, view, parsed.list.drill, nowMs);
-    return new NextResponse(toCsv(view, rows), {
+    const rows = exportRows(prep, parsed.filters, parsed.list.drill, nowMs);
+    return new NextResponse(toCsv(rows), {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="accounts-overview-${view}-${etDateStr(nowMs)}.csv"`,
+        "Content-Disposition": `attachment; filename="accounts-${etDateStr(nowMs)}.csv"`,
       },
     });
   }

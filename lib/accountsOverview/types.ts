@@ -91,20 +91,19 @@ export interface AoReconRow { check: string; team: string | null; hubspot: numbe
 // ── request filters ──────────────────────────────────────────────────────────
 export interface DateRange { fromMs: number | null; toMs: number | null; includeMissing?: boolean }
 
+export type DealerTypeFilter = "all" | "franchise" | "independent" | "none";
+
 export interface AoFilters {
   teams: string[];                 // team_accounts values; [] = all four
   member: string | null;           // ACTIVITY owner id (team member who did the work)
   country: string;                 // "USA" (default) | "all" | normalized country label | "Unknown"
-  companyDate: DateRange | null;   // on notes_last_updated
-  rooftopDate: DateRange | null;   // on rooftop_last_activity
-  accountType: AccountType | "all";
-  icp: IcpStatus | "all";
+  state: string;                   // "all" | exact state text (case-insensitive)
+  gdName: string;                  // "" = any; otherwise exact GD Name (case-insensitive)
+  dealerType: DealerTypeFilter;    // Type of Dealership
   owner: string | null;            // ACCOUNT owner id
-  q: string;                       // company name / domain / record id
-  contactQ: string;                // contact name / email / phone
+  companyDate: DateRange | null;   // on HubSpot Last Activity Date (notes_last_updated)
+  q: string;                       // list search: company name / domain / record id
   activityTypes: AoActivityType[]; // [] = all
   activityFrom: number;            // [from, to) ms — the reporting period
   activityTo: number;
-  inactiveDays: number;
-  deepInactiveDays: number;
 }
