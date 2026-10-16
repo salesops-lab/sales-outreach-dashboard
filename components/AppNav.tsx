@@ -4,10 +4,11 @@ import LogoutButton from "./LogoutButton";
 import ThemeToggle from "./ThemeToggle";
 import { cn } from "./ui";
 
-type Tab = "overview" | "accounts" | "attention" | "slack-reports" | "admin";
+type Tab = "overview" | "accounts" | "accounts-overview" | "attention" | "slack-reports" | "admin";
 const TABS: { key: Tab; label: string; href: string }[] = [
   { key: "overview", label: "Overview", href: "/" },
   { key: "accounts", label: "Deals & Accounts", href: "/accounts" },
+  { key: "accounts-overview", label: "Accounts Overview", href: "/accounts-overview" },
   { key: "attention", label: "Intelligence", href: "/attention" },
 ];
 
