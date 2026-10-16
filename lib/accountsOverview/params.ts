@@ -41,7 +41,7 @@ export function parseRequest(sp: URLSearchParams, nowMs: number, windowStartMs: 
   const filters: AoFilters = {
     teams,
     member: sp.get("member") || null,
-    country: sp.get("country") || "USA",
+    country: sp.get("country") || "all",
     state: sp.get("state") || "all",
     gdName: (sp.get("gd") ?? "").slice(0, 200),
     dealerType: dealer && DEALER.includes(dealer) ? dealer : "all",

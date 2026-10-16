@@ -156,7 +156,17 @@ describe("engine", () => {
         co("7", { type_of_dealership: null }),
       ],
     }));
-    const v = computeView(prep, filters(), "accounts", LIST, NOW) as { cards: { key: string; count: number }[]; unique_gds: number; list: { total: number } };
+    const v = computeView(prep, filters(), "accounts", LIST, NOW) as {
+      cards: { key: string; count: number }[]; unique_gds: number; list: { total: number };
+      team_table: { team: string; total: number; single_franchise: number; independent: number; group: number }[];
+    };
+    const all = v.team_table.find((r) => r.team === "")!;
+    expect(all).toMatchObject({ total: 7, single_franchise: 3, independent: 1, group: 2 }); // + 1 unknown = 7
+    expect(v.team_table.find((r) => r.team === "Neelima")!.total).toBe(7);
+    // the team table always shows all four teams, even when the Team filter narrows the cards
+    const narrowed = computeView(prep, filters({ teams: ["Prince"] }), "accounts", LIST, NOW) as { team_table: { team: string; total: number }[]; cards: { key: string; count: number }[] };
+    expect(narrowed.team_table.find((r) => r.team === "Neelima")!.total).toBe(7);
+    expect(narrowed.cards[0].count).toBe(0);
     const count = (k: string) => v.cards.find((c) => c.key === k)!.count;
     expect(v.cards.map((c) => c.key)).toEqual(ACCOUNT_CARDS.map((c) => c.key));
     expect(count("")).toBe(7);
@@ -210,9 +220,9 @@ describe("engine", () => {
 });
 
 describe("params", () => {
-  it("defaults to USA, all four teams, the last 3 months", () => {
+  it("opens with no filters: all countries, all four teams, the last 3 months", () => {
     const p = parseRequest(new URLSearchParams(""), NOW, NOW - 180 * DAY);
-    expect(p.filters.country).toBe("USA");
+    expect(p.filters.country).toBe("all");
     expect(p.filters.teams).toEqual([]);
     expect(p.view).toBe("accounts");
     expect(p.filters.activityFrom).toBe(resolveRange("3m", null, null, NOW).fromMs);

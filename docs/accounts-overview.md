@@ -42,11 +42,12 @@ Pass 1 = CRM reporting (SQL group-bys). Pass 2 = CRM Search API `total`s. They m
 
 ## The page (simplified on 2026-10-16 at the user's request)
 
-One filter bar — Team, Team member (who did the work), GD Name, Type of Dealership, Country (default
-USA), State, Account owner, Last Activity Date (preset / custom / "no date"), Activity type, Activity
-date range (default last 3 months) — and two tabs:
+One filter bar — Team, Team member (who did the work), GD Name, Type of Dealership, Country, State,
+Account owner, Last Activity Date (preset / custom / "no date"), Activity type, Activity date range
+(default last 3 months) — and two tabs. The page opens with **no filters** (all countries, all teams).
 
-- **Accounts**: 8 cards; clicking one filters the searchable, sortable account list below (CSV export,
+- **Accounts**: a "Companies by HubSpot Team" table (total / Single Franchise / Single Independent /
+  Group per team + all four), then 8 cards; clicking a number or card filters the searchable, sortable account list below (CSV export,
   click a company for its full detail + timeline).
 - **Pipeline & Activity**: demos booked/completed, deals by current stage, ICP contacted vs not,
   and a per-team-member table (accounts owned, accounts worked, calls, emails, touchpoints per account).
@@ -91,7 +92,7 @@ associated contact ids vs readable contact records.
 
 - **Meeting outcome** is rarely recorded in HubSpot, so completed / cancelled meeting counts understate reality.
 - **Contact ICP** (`icp_non_icp`) is set on very few contacts.
-- **Country** is free text and often blank — the default USA filter hides blank-country companies.
+- **Country** is free text and often blank — filtering by a country hides blank-country companies.
 - **Roster AE owner ids**: several AE ids in `config/reps.ts` / `config/team-structure.ts` do not match their HubSpot owner ids
   (e.g. Liam Fallon 300786392766 vs owner 160575588). Not used by this feature; not changed here.
 

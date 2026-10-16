@@ -31,7 +31,7 @@ interface UiFilters {
   ppreset: string; pfrom: string; pto: string;
 }
 const DEFAULTS: UiFilters = {
-  team: "", member: "", gd: "", dtype: "all", country: "USA", state: "all", owner: "",
+  team: "", member: "", gd: "", dtype: "all", country: "all", state: "all", owner: "",
   cpreset: "any", cfrom: "", cto: "", atypes: [], ppreset: "3m", pfrom: "", pto: "",
 };
 
@@ -42,7 +42,7 @@ function filterQuery(f: UiFilters): URLSearchParams {
   if (f.member) p.set("member", f.member);
   if (f.gd.trim()) p.set("gd", f.gd.trim());
   if (f.dtype !== "all") p.set("dtype", f.dtype);
-  if (f.country !== "USA") p.set("country", f.country);
+  if (f.country !== "all") p.set("country", f.country);
   if (f.state !== "all") p.set("state", f.state);
   if (f.owner) p.set("owner", f.owner);
   if (f.cpreset !== "any") p.set("cpreset", f.cpreset);
@@ -55,7 +55,7 @@ function filterQuery(f: UiFilters): URLSearchParams {
 function fromUrl(sp: URLSearchParams): UiFilters {
   const g = (k: string, d: string) => sp.get(k) ?? d;
   return {
-    team: g("teams", ""), member: g("member", ""), gd: g("gd", ""), dtype: g("dtype", "all"), country: g("country", "USA"),
+    team: g("teams", ""), member: g("member", ""), gd: g("gd", ""), dtype: g("dtype", "all"), country: g("country", "all"),
     state: g("state", "all"), owner: g("owner", ""), cpreset: g("cpreset", "any"), cfrom: g("cfrom", ""), cto: g("cto", ""),
     atypes: g("atypes", "").split(",").filter(Boolean), ppreset: g("ppreset", "3m"), pfrom: g("pfrom", ""), pto: g("pto", ""),
   };
@@ -233,9 +233,8 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
           </Field>
           <Field label="Country">
             <select className={sel} value={f.country} onChange={(e) => set({ country: e.target.value })}>
-              <option value="USA">USA</option>
               <option value="all">All countries</option>
-              {(opts?.countries ?? []).filter((c: any) => c.value !== "USA").map((c: any) => <option key={c.value} value={c.value}>{c.value} ({c.count})</option>)}
+              {(opts?.countries ?? []).map((c: any) => <option key={c.value} value={c.value}>{c.value} ({c.count})</option>)}
             </select>
           </Field>
           <Field label="State">
@@ -288,7 +287,8 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
 
         {shown && tab === "accounts" && (
           <AccountsTab data={shown} card={card} q={q} sort={sort} dir={dir} csvHref={csvHref}
-            onCard={(k) => { setCard(k); setPageNo(1); }} onQ={(v) => { setQ(v); setPageNo(1); }}
+            onCard={(k) => { setCard(k); setPageNo(1); }}
+            onPick={(team, k) => { set({ team }); setCard(k); }} onQ={(v) => { setQ(v); setPageNo(1); }}
             onSort={(k) => { if (sort === k) setDir(dir === "asc" ? "desc" : "asc"); else { setSort(k); setDir(k === "name" ? "asc" : "desc"); } setPageNo(1); }}
             onPage={setPageNo} onOpen={setDetail} />
         )}
@@ -299,9 +299,9 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
   );
 }
 
-function AccountsTab({ data, card, q, sort, dir, csvHref, onCard, onQ, onSort, onPage, onOpen }: {
+function AccountsTab({ data, card, q, sort, dir, csvHref, onCard, onPick, onQ, onSort, onPage, onOpen }: {
   data: any; card: string; q: string; sort: string; dir: "asc" | "desc"; csvHref: string;
-  onCard: (k: string) => void; onQ: (v: string) => void; onSort: (k: string) => void; onPage: (p: number) => void; onOpen: (id: string) => void;
+  onCard: (k: string) => void; onPick: (team: string, k: string) => void; onQ: (v: string) => void; onSort: (k: string) => void; onPage: (p: number) => void; onOpen: (id: string) => void;
 }) {
   const list = data.list;
   const SUB: Record<string, string> = {
@@ -318,8 +318,38 @@ function AccountsTab({ data, card, q, sort, dir, csvHref, onCard, onQ, onSort, o
     ["name", "Company"], ["team", "Team"], ["owner_name", "Account owner"], ["type", "Type"], ["gd_name", "GD Name"],
     ["state", "State"], ["company_days", "Last activity"], ["calls", "Calls", true], ["emails", "Emails", true], ["touchpoints", "Touchpoints", true],
   ];
+  const TEAM_COLS: [string, string, string][] = [
+    ["total", "Total companies", ""], ["single_franchise", "Single Franchise", "type:single_franchise"],
+    ["independent", "Single Independent", "type:independent"], ["group", "Group Dealership (GD Name known)", "type:group"],
+  ];
   return (
     <div className="space-y-4">
+      <Card title="Companies by HubSpot Team">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b border-line">
+              <tr><TH>HubSpot Team</TH>{TEAM_COLS.map(([k, l]) => <TH key={k} right>{l}</TH>)}</tr>
+            </thead>
+            <tbody>
+              {data.team_table.map((r: any) => (
+                <tr key={r.label} className={cn("border-b border-line/60", !r.team && "bg-surface-muted/50 font-semibold")}>
+                  <td className="px-2 py-2">{r.label}</td>
+                  {TEAM_COLS.map(([k, , drill]) => (
+                    <td key={k} className="px-2 py-2 text-right font-mono tabular-nums">
+                      <button onClick={() => onPick(r.team, drill)} className="text-primary hover:underline" title="Show these companies in the list below">{fmt(r[k])}</button>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-[11px] text-ink-subtle">
+          Single Franchise / Single Independent = GD Name empty + Type of Dealership. Group Dealership = GD Name known.
+          Click a number to list those companies below.
+        </p>
+      </Card>
+
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {data.cards.map((c: any) => (
           <button key={c.key} onClick={() => onCard(c.key)}

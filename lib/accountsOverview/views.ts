@@ -113,7 +113,17 @@ export function computeView(prep: Prepared, f: AoFilters, view: AoView, o: ListO
     const t = tally(accts);
     const cards = ACCOUNT_CARDS.map((c) => ({ ...c, count: accts.filter((a) => drillMatch(a, c.key)).length }));
     const rows = sortRows(accts.filter((c) => drillMatch(c, o.drill)).map((c) => toListRow(c, prep)), o.sort || "name", o.dir);
-    return { meta, cards, unique_gds: t.unique_gds, unknown_type: t.unknown, list: page<AccountListRow>(rows, o) };
+    // Team-wise breakdown: all four teams side by side (every other filter still applies).
+    const allTeams = f.teams.length ? filterAccounts(prep, { ...f, teams: [] }, nowMs) : accts;
+    const teamRow = (label: string, team: string, list: typeof accts) => {
+      const x = tally(list);
+      return { team, label, total: x.accounts, single_franchise: x.single_franchise, independent: x.independent, group: x.group, unknown: x.unknown };
+    };
+    const team_table = [
+      ...AO_TEAMS.map((tm) => teamRow(tm.label, tm.value, allTeams.filter((c) => c.p.row.team === tm.value))),
+      teamRow("All four teams", "", allTeams),
+    ];
+    return { meta, team_table, cards, unique_gds: t.unique_gds, unknown_type: t.unknown, list: page<AccountListRow>(rows, o) };
   }
 
   // ── pipeline ──
