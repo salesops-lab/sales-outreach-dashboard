@@ -23,6 +23,7 @@
     "embed:content": "tsx --conditions=react-server scripts/embed-content.ts",
     "intel:signals": "tsx --conditions=react-server scripts/intel-signals.ts",
     "content:backfill": "tsx --conditions=react-server scripts/content-backfill.ts",
+    "ao:sync": "tsx --conditions=react-server scripts/accounts-overview-sync.ts",
     "test": "vitest run"
   },
   "dependencies": {

@@ -38,11 +38,17 @@ the full **lead→demo→closure funnel** + **intelligence** on top:
   (`lib/slackReports/format.ts`) — no bot token, no file upload, no image, no headless browser — so
   it runs inline in the Vercel server action and lands in Slack synchronously. A report can
   exclude specific reps entirely via `excludeOwnerNames`.
+- **Accounts Overview (`lib/accountsOverview/*`, `/accounts-overview`)** — team-account distribution,
+  ownership, inactivity, activity/touchpoints, ICP coverage and meetings/demos for the Neelima ·
+  Prince · Saarthak · Central teams. **Isolated pipeline**: own `sdr_ao_*` tables, own sync
+  (`npm run ao:sync`), own API — it never reads or writes the spine tables or the snapshot.
+  Design record + metric→HubSpot-source map: `docs/accounts-overview.md`.
 
 Surfaces: **Overview** (`/`, the rep table + Demo funnel + SDR/AE toggle), **Accounts** (`/accounts`,
 owned book by demo-status with GD→rooftop→contact drill, Deal Health/Temperature + last-activity),
 **Intelligence** (`/attention` — a tabbed hub: Ask · Focus · Radar · Themes · Board, role-aware
-default tab, `?tab=` deep-links), **Slack Reports** (`/slack-reports` — admin-only), **Admin**
+default tab, `?tab=` deep-links), **Accounts Overview** (`/accounts-overview` — eight sub-tabs,
+URL-synced filters), **Slack Reports** (`/slack-reports` — admin-only), **Admin**
 (`/admin`). Shared top-nav in `components/AppNav.tsx`.
 
 Read `README.md` for product definitions and setup. This file covers architecture and the
@@ -74,13 +80,14 @@ spec is the design record for its feature; the phase-1/2/3 ones are historical).
 | `npm run agent:run` | One hot-account agent pass (OpenAI reasoning → `sdr_agent_watches`); needs `OPENAI_API_KEY` |
 | `npm run agent:briefs` | Refresh grounded Account Briefs for watched accounts (timeline + content + deals → `sdr_agent_briefs`); needs `OPENAI_API_KEY`; runs as the 2nd step of `spine-agent.yml` |
 | `npm run embed:content` | Index new `sdr_activity_content` rows into `sdr_embeddings` (pgvector; idempotent, new rows only); needs `OPENAI_API_KEY`; runs nightly after `content:backfill` in `spine-reconcile.yml` |
+| `npm run ao:sync` | Full rebuild of the Accounts Overview tables (`sdr_ao_*`) from HubSpot (company-centric: team_accounts companies → contacts/deals/calls/emails/meetings/notes/tasks; 180-day activity window) + reconciliation; needs `supabase/accounts_overview_schema.sql`; runs every 6 h via `accounts-overview-sync.yml` |
 | `npm run intel:signals` | Mine typed signals (objections/competitors/buying signals/risks/commitments/timing) from new content → `sdr_intel_signals`; idempotent via the `sdr_intel_scans` ledger, newest content first, cap `INTEL_SCAN_CAP` (default 2500/run); needs `OPENAI_API_KEY`; runs nightly after `embed:content` |
 
 All non-`dev`/`build`/`lint`/`test`/`start` scripts run via `tsx --conditions=react-server` — required so
 the `server-only` guard in `lib/supabase/admin.ts` resolves to a no-op under plain Node. Scripts
 load env from `.env` then `.env.local` (so put local secrets, incl. `OPENAI_API_KEY`, in `.env.local`).
 
-**No CI gate.** All six `.github/workflows/*` are cron/manual data-sync jobs — none run on `push`
+**No CI gate.** All seven `.github/workflows/*` are cron/manual data-sync jobs — none run on `push`
 or `pull_request`, so `lint`/`test`/`build` are **not** enforced in CI. Run `npm run build` (typecheck),
 `npm test`, and `npm run lint` locally before pushing.
 
@@ -103,7 +110,8 @@ chunk composer (`embed-chunks.test.ts`), the calling drill-down builder (`callin
 and the Intelligence 2.0 pure logic — signal prompt/coercion/rescan (`intel-signals.test.ts`),
 the Focus merge incl. revival-window edges (`intel-focus.test.ts`), and the Radar
 ranking incl. the zombie sink (`intel-radar.test.ts`); and the Slack Reports Call Blitz fold
-(`slack-reports.test.ts`) — 26 files / 250 tests in all. Never
+(`slack-reports.test.ts`); and the Accounts Overview classifiers + engine + params
+(`accounts-overview.test.ts`) — 27 files / 267 tests in all. Never
 import a `server-only`-guarded module (`lib/supabase/admin.ts`,
 `lib/callquality/fetch.ts`, `lib/agent/openai|store|runner.ts`, `lib/slackReports/build.ts` — which
 transitively pulls in `supabaseAdmin` via `lib/spine/store.ts`/`lib/team/load.ts`) from a test — it
@@ -215,7 +223,7 @@ by a **self-perpetuating heartbeat** (`spine-delta-heartbeat.yml`, loops `sync:d
 self-redispatches — defeats GitHub's throttled `schedule:`; see the sync convention below), with
 `spine-delta.yml` (`*/15`) as a fallback; reconcile nightly (`spine-reconcile.yml`); agent every 2 h
 (`spine-agent.yml`); `spine-backfill.yml` + `spine-pull-owner.yml` are manual-dispatch-only wrappers
-for `sync:backfill` / `pull:owner` (that's all six workflows). Shared contracts: `lib/sync/types.ts`
+for `sync:backfill` / `pull:owner`; `accounts-overview-sync.yml` (every 6 h) runs `ao:sync` (that's all seven workflows). Shared contracts: `lib/sync/types.ts`
 (sync↔UI, incl. `Deal`, `AccountDeal`, `RepFunnel`, `CoverageStatus`, `DemoStatus`, `DealHealth`),
 `lib/spine/types.ts` (`sdr_*` rows +
 `Viewer` incl. `kind`), `config/deal-stages.ts` (canonical stage model), `lib/callquality/types.ts`
@@ -569,6 +577,33 @@ ET "today", computed fresh at click time.
   calls `lib/slackReports/run.ts`'s `runOneReport()` directly and awaits it; the result lands in
   Slack synchronously, before the button's own request resolves. No run history is persisted
   anywhere — the message in Slack (or the toast's error text, on failure) is the record.
+
+## Accounts Overview (`lib/accountsOverview/*`, `/accounts-overview`)
+
+Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-bearing rules:
+
+- **Assigned team = company `team_accounts`** (HubSpot enum), NOT the owner and NOT the roster pod.
+  The four in-scope values + their roster pod keys live in `config/accounts-overview.ts` (`AO_TEAMS`);
+  Archit is a real value deliberately excluded and reported. Account owner (company owner), activity
+  owner (engagement owner) and contact owner are separate fields everywhere — the roster pod is only a
+  lens, and pod≠team is flagged in Data Quality, never "fixed".
+- **Isolated by design**: the spine only holds tracked reps' companies/activity, but most team accounts
+  are owned by the `salesops .` placeholder — so the feature has its own company-centric pull
+  (`lib/accountsOverview/pull.ts` + `sync.ts`, full rebuild with `run_id` pruning). Don't route it
+  through `sdr_companies`/`sdr_activities`, and don't route spine metrics through `sdr_ao_*`.
+- **Pure engine**: `compute.ts` (filters, per-account calc, tally, drill predicates, DQ checks) and
+  `views.ts` (per-tab payloads) are I/O-free and tested; the API caches the prepared dataset 5 min
+  (`cache.ts`) and computes every filter change in memory. KPI counts and drill lists share one
+  predicate (`drillMatch`) so they always agree.
+- **Classification** (`classify.ts`): GD = GD association (`gd_id`‖`dealership_group_name`, the
+  `unitKeyFor` rule) + a GD name; SF/Independent need an explicit non-GD flag
+  (`AO_REQUIRE_EXPLICIT_NON_GD_FLAG`); everything else is Unknown with a reason.
+- **Two inactivity dates, never substituted**: company = `notes_last_updated`, rooftop =
+  `rooftop_last_activity`. Missing ≠ 0 days ≠ never contacted; "Never contacted" requires HubSpot
+  `notes_last_contacted` empty AND no synced touch.
+- **Counting**: calls = OUTBOUND, connected = `config/dispositions.ts`, emails = direction EMAIL,
+  meetings = meeting records (outcome only from `hs_meeting_outcome`), demos = the shared
+  `demoScheduledMs`/`demoCompletedMs` over Auto-Pipeline deals; dedupe by activity/deal id.
 
 ## Derived-metric definitions (`lib/sync/aggregate.ts` unless noted)
 
