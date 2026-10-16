@@ -25,8 +25,7 @@ Pass 1 = CRM reporting (SQL group-bys). Pass 2 = CRM Search API `total`s. They m
 | **Activity owner** | engagement `hubspot_owner_id` | per call / email / meeting / note / task |
 | **Contact owner** | contact `hubspot_owner_id` | |
 | Dealership type | company `type_of_dealership` (Franchise / Independent) | `dealership_type` also exists; the dashboard has always used `type_of_dealership` |
-| GD flag | company `is_this_is_a_part_of_group_dealership_` (true/false) | some records hold the label "Yes" (non-standard) |
-| GD association | `gd_id`, `dealership_group_name`; GD name = `gd_name` ‖ `dealership_group_name` | same rule as `aggregate.ts unitKeyFor` |
+| GD Name | company `gd_name` ("GD Name") | the only field that decides Group vs Single |
 | Company ICP | company `icp` (string: yes / no / empty) | `hs_ideal_customer_profile` exists but only 263 companies portal-wide have it — not used |
 | Contact ICP | contact `icp_non_icp` (ICP / Non ICP) | sparse — reported separately, never merged with company ICP |
 | Company last activity | company `notes_last_updated` ("Last Activity Date", HubSpot-maintained) | |
@@ -39,30 +38,39 @@ Pass 1 = CRM reporting (SQL group-bys). Pass 2 = CRM Search API `total`s. They m
 | Meetings | `meetings` — `hs_timestamp`, `hs_meeting_outcome`, `hs_meeting_start_time`, `hs_meeting_title` | outcome is mostly unset (939 of 954 meetings since 2026-07-16) |
 | Demos | Auto-Pipeline deals; `hs_v2_date_entered_<stage>` via `stageEventsOf` | same `demoScheduledMs` / `demoCompletedMs` as the rest of the app |
 
+## The page (simplified on 2026-10-16 at the user's request)
+
+One filter bar — Team, Team member (who did the work), GD Name, Type of Dealership, Country (default
+USA), State, Account owner, Last Activity Date (preset / custom / "no date"), Activity type, Activity
+date range (default last 3 months) — and two tabs:
+
+- **Accounts**: 8 cards; clicking one filters the searchable, sortable account list below (CSV export,
+  click a company for its full detail + timeline).
+- **Pipeline & Activity**: demos booked/completed, deals by current stage, ICP contacted vs not,
+  and a per-team-member table (accounts owned, accounts worked, calls, emails, touchpoints per account).
+
 ## Metric definitions
 
 | Metric | Definition |
 |---|---|
-| Total accounts | company records with `team_accounts` ∈ selected teams, after filters. 1 record = 1 rooftop (no verified rooftop-vs-HQ flag exists; shared domains are flagged in Data Quality). |
-| Single Franchise / Independent | `type_of_dealership` = Franchise / Independent, **no** GD association, GD flag explicitly No (`AO_REQUIRE_EXPLICIT_NON_GD_FLAG`) |
-| Group Dealership | GD association (`gd_id` or `dealership_group_name`) **and** a GD name, flag not No |
-| Unknown / Needs Review | everything else, with a reason (flag unset, flag Yes without GD, flag No with GD, GD ID without name, type missing) |
-| Unique Group Dealerships | distinct GD keys (`gd_id`, else normalized group name) among Group accounts |
-| Active / Inactive N+ / Inactive M+ | days since `notes_last_updated` (company) or `rooftop_last_activity` (rooftop), thresholds default 60/90, adjustable; "Inactive 60+" includes 90+ |
-| No recorded activity | company `notes_last_updated` empty |
-| Missing activity date | rooftop `rooftop_last_activity` empty |
-| Needs review (date) | future-dated, or Last Contacted set while Last Activity Date empty |
-| Never contacted (verified) | `notes_last_contacted` empty **and** no call/email/meeting found in the synced window |
+| Total accounts | company records with `team_accounts` ∈ selected teams, after filters (groups + single rooftops) |
+| Group Dealership | **GD Name** (`gd_name`) is set |
+| Single Franchise | GD Name empty + Type of Dealership = Franchise |
+| Single Independent | GD Name empty + Type of Dealership = Independent |
+| Unknown | GD Name and Type of Dealership both empty (0 on the four teams as of 2026-10-16) |
+| Worked in last 60 days | HubSpot Last Activity Date (`notes_last_updated`) < 60 days ago |
+| Not touched in 60+ days | Last Activity Date is 60 or more days ago |
+| No recorded activity | Last Activity Date empty |
+| Never contacted | HubSpot Last Contacted (`notes_last_contacted`) empty **and** no call/email/meeting synced |
 | Calls / Connected | OUTBOUND calls; connected = the 11 GUIDs in `config/dispositions.ts` |
 | Emails | `hs_email_direction` = EMAIL (outgoing) |
-| Meetings | meeting records in the period; completed / cancelled / no-show only from `hs_meeting_outcome` — never inferred |
-| Meeting-booked calls | calls with disposition Meeting Scheduled / Rescheduled (a separate, labelled source) |
-| Touchpoints | calls + emails + meetings (notes and tasks are listed, not counted) |
-| Contacted (account, period) | ≥ 1 touchpoint on the account or its associated contacts in the period |
-| Demos booked / completed | deals whose demo booking / completion falls in the period; deal counted once even if on several accounts |
-| Meeting / demo booking rate | accounts with a meeting (demo booked) ÷ accounts contacted, same period |
-| ICP account coverage | ICP accounts contacted ÷ ICP accounts |
-| ICP contact coverage | associated contacts at ICP accounts that were touched ÷ all associated contacts at ICP accounts |
+| Touchpoints | calls + emails (meetings, notes, tasks are shown but not counted) |
+| Contacted (account, date range) | ≥ 1 touchpoint on the account or its associated contacts in the range |
+| Demos booked / completed | Auto-Pipeline deals whose demo booking / completion falls in the range; a deal counts once even if on several accounts |
+| Deal pipeline | deals booked in the range, grouped by their current stage |
+| Demo booking rate | accounts with a demo booked ÷ accounts contacted |
+| Member: accounts owned / worked | owned = HubSpot company owner; worked = accounts they called or emailed in the range |
+| Member: touchpoints per account | (their calls + emails) ÷ accounts worked |
 
 Activity date is HubSpot `hs_timestamp` for every type. For **tasks** that is the task's due date,
 so future-dated tasks fall outside the synced window and are not listed; tasks are never touchpoints.
@@ -73,22 +81,20 @@ Each activity counts once per account; team / rep totals de-duplicate by activit
 
 ## Reconciliation built into the sync
 
-Every run records (shown on the Data Quality tab): HubSpot Search `total` per team vs records pulled
+Every run records (in `sdr_ao_sync_state`): HubSpot Search `total` per team vs records pulled
 vs rows re-counted in Postgres after the write; Σ `num_associated_contacts` vs association rows read;
 associated contact ids vs readable contact records; excluded team counts (Archit).
 
 ## Known data gaps (live, 2026-10-16)
 
-- **GD flag unset** on ~2,159 of the four teams' non-GD companies → Unknown / Needs Review under the
-  strict rule. Turning `AO_REQUIRE_EXPLICIT_NON_GD_FLAG` off would class them by Type of Dealership.
 - **Meeting outcome** almost never recorded → completed / cancelled meeting counts understate reality.
 - **Contact ICP** set on 158 of 13,692 contacts associated to any `team_accounts` company (all five teams).
-- **Country** blank on ~680 team accounts (hidden by the default USA filter; listed in Data Quality).
+- **Country** blank on ~680 team accounts (hidden by the default USA filter; pick "All countries" to see them).
 - **Rooftop Last Activity** blank on ~3,480 of 4,932 team accounts.
 - **Team vs owner**: most team accounts are owned by the `salesops .` placeholder; roster pod ≠ team is common.
 - **Roster AE owner ids**: several AE ids in `config/reps.ts` / `config/team-structure.ts` (e.g. Arun Divya Prakash 207645325029,
   Liam Fallon 300786392766, Pallav Pandey 303562897138, Jatin Arora 129303672507) do not match their HubSpot **owner** ids
-  (82407666, 160575588, 68537322, 159882968). Not changed here; the Data Quality tab lists any active roster id that is not a HubSpot owner.
+  (82407666, 160575588, 68537322, 159882968). Not changed here.
 
 ## Setup
 

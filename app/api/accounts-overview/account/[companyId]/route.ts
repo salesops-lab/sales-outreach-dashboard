@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, { params }: { params: { companyId: s
   const nowMs = Date.now();
   const { filters } = parseRequest(req.nextUrl.searchParams, nowMs, prep.data.state.window_start_ms);
   // Detail shows the whole synced window, all activity types, everyone's work on the account.
-  const full = { ...filters, member: null, activityTypes: [], contactQ: "",
+  const full = { ...filters, member: null, activityTypes: [],
     activityFrom: prep.data.state.window_start_ms ?? 0, activityTo: nowMs + 86_400_000 };
   const period = calcAccount(prep, p, filters, nowMs);
   const whole = calcAccount(prep, p, full, nowMs);
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest, { params }: { params: { companyId: s
     account: toListRow(period, prep),
     window: { from: full.activityFrom, to: nowMs },
     raw: {
-      is_group: p.row.is_group, type_of_dealership: p.row.type_of_dealership, group_name: p.row.group_name,
+      type_of_dealership: p.row.type_of_dealership, gd_name: p.row.gd_name,
       icp: p.row.icp, country_raw: p.row.country,
     },
     contacts: contactRows([whole], prep, full).map((c) => ({ ...c, owner_id: prep.contactById.get(c.id)?.owner_id ?? null })),

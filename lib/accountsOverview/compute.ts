@@ -6,8 +6,8 @@
  * Counting rules (the metric → source map lives in docs/accounts-overview.md):
  *  - Calls = OUTBOUND calls; Connected = isConnected(disposition) — the dashboard's validated
  *    11-GUID rule (config/dispositions.ts); Emails = outgoing (hs_email_direction = EMAIL);
- *    Meetings = HubSpot meeting records. Touchpoints = calls + emails + meetings.
- *    Notes/tasks appear in timelines but are NOT touchpoints.
+ *    Meetings = HubSpot meeting records (counted separately). Touchpoints = calls + emails.
+ *    Notes/tasks appear in the account timeline but are NOT touchpoints.
  *  - An activity is counted ONCE per account even when it reaches the account both directly
  *    and through a contact; team/rep totals de-duplicate by activity id.
  *  - Demos come from Auto-Pipeline deals via the existing demoScheduledMs/demoCompletedMs
@@ -15,10 +15,10 @@
  *  - Account Owner, Assigned Team, Activity Owner and Contact Owner are never interchanged.
  */
 import { isConnected, MEETING_SCHEDULED_GUID, MEETING_RESCHEDULED_GUID, dispositionLabel } from "../../config/dispositions";
-import { AO_TEAMS } from "../../config/accounts-overview";
+import { AO_DEEP_INACTIVE_DAYS, AO_INACTIVE_DAYS, AO_TEAMS } from "../../config/accounts-overview";
 import {
   classifyAccountType, companyIcp, companyStatus, contactIcp, daysSince, gdKeyOf, gdNameOf,
-  isNonStandardGdFlag, normalizeCountry, rooftopStatus, TypeVerdict,
+  normalizeCountry, rooftopStatus, TypeVerdict,
 } from "./classify";
 import {
   AccountType, AoActivityRow, AoCompanyRow, AoContactRow, AoDealRow, AoFilters, AoSyncState,
@@ -63,7 +63,8 @@ export interface Prepared {
 const isCall = (a: AoActivityRow) => a.type === "call" && (a.direction ?? "").toUpperCase() === "OUTBOUND";
 const isEmail = (a: AoActivityRow) => a.type === "email" && (a.direction ?? "").toUpperCase() === "EMAIL";
 const isMeeting = (a: AoActivityRow) => a.type === "meeting";
-export const isTouch = (a: AoActivityRow) => isCall(a) || isEmail(a) || isMeeting(a);
+/** Touchpoint = an outbound call or an outgoing email (the same Total Touches rule as Call Blitz). */
+const isTouch = (a: AoActivityRow) => isCall(a) || isEmail(a);
 const isMeetingDisposition = (a: AoActivityRow) =>
   isCall(a) && (a.disposition === MEETING_SCHEDULED_GUID || a.disposition === MEETING_RESCHEDULED_GUID);
 const isEngaged = (a: AoActivityRow) => (isCall(a) && isConnected(a.disposition)) || isMeeting(a) || (isEmail(a) && a.email_replied);
@@ -84,7 +85,7 @@ export function prepare(data: AoData): Prepared {
   }
   const companies: PCompany[] = data.companies.map((row) => {
     const acts = (actsByCo.get(row.hs_id) ?? []).slice().sort((a, b) => b.ts_ms - a.ts_ms);
-    const firstTouch = acts.find(isTouch);
+    const firstTouch = acts.find((a) => isTouch(a) || isMeeting(a)); // any real contact, meetings included
     return {
       row, type: classifyAccountType(row), country: normalizeCountry(row.country), icp: companyIcp(row.icp),
       gdKey: gdKeyOf(row), gdName: gdNameOf(row),
@@ -132,16 +133,6 @@ const inRange = (ms: number | null, r: DateRange | null): boolean => {
   return true;
 };
 
-const digits = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
-
-function contactMatches(c: AoContactRow, q: string): boolean {
-  const needle = q.toLowerCase();
-  const name = `${c.first_name ?? ""} ${c.last_name ?? ""}`.toLowerCase();
-  if (name.includes(needle) || (c.email ?? "").toLowerCase().includes(needle) || c.hs_id === q.trim()) return true;
-  const d = digits(q);
-  return d.length >= 4 && digits(c.phone).includes(d);
-}
-
 export function calcAccount(prep: Prepared, p: PCompany, f: AoFilters, nowMs: number): AccountCalc {
   const typeSet = f.activityTypes.length ? new Set(f.activityTypes) : null;
   const periodActs = p.acts.filter((a) =>
@@ -149,8 +140,8 @@ export function calcAccount(prep: Prepared, p: PCompany, f: AoFilters, nowMs: nu
     (!typeSet || typeSet.has(a.type)) && (!f.member || a.owner_id === f.member));
   const c: AccountCalc = {
     p,
-    cStatus: companyStatus(p.row, nowMs, f.inactiveDays, f.deepInactiveDays),
-    rStatus: rooftopStatus(p.row.rooftop_last_activity_ms, nowMs, f.inactiveDays, f.deepInactiveDays),
+    cStatus: companyStatus(p.row, nowMs, AO_INACTIVE_DAYS, AO_DEEP_INACTIVE_DAYS),
+    rStatus: rooftopStatus(p.row.rooftop_last_activity_ms, nowMs, AO_INACTIVE_DAYS, AO_DEEP_INACTIVE_DAYS),
     cDays: daysSince(p.row.last_activity_ms, nowMs),
     rDays: daysSince(p.row.rooftop_last_activity_ms, nowMs),
     neverContacted: p.row.last_contacted_ms == null && !p.hasWindowTouch,
@@ -209,19 +200,22 @@ export function calcAccount(prep: Prepared, p: PCompany, f: AoFilters, nowMs: nu
 export function filterAccounts(prep: Prepared, f: AoFilters, nowMs: number): AccountCalc[] {
   const teams = new Set(f.teams.length ? f.teams : AO_TEAMS.map((t) => t.value));
   const q = f.q.trim().toLowerCase();
-  const cq = f.contactQ.trim();
+  const gd = f.gdName.trim().toLowerCase();
+  const state = f.state.trim().toLowerCase();
   const out: AccountCalc[] = [];
   for (const p of prep.companies) {
     const r = p.row;
     if (!r.team || !teams.has(r.team)) continue;
     if (f.country !== "all" && p.country !== f.country) continue;
-    if (f.accountType !== "all" && p.type.type !== f.accountType) continue;
-    if (f.icp !== "all" && p.icp !== f.icp) continue;
+    if (state !== "all" && (r.state ?? "").trim().toLowerCase() !== state) continue;
+    if (gd && p.gdKey !== gd) continue;
+    if (f.dealerType !== "all") {
+      const t = (r.type_of_dealership ?? "").trim().toLowerCase();
+      if (f.dealerType === "none" ? t !== "" : t !== f.dealerType) continue;
+    }
     if (f.owner && r.owner_id !== f.owner) continue;
     if (q && !((r.name ?? "").toLowerCase().includes(q) || (r.domain ?? "").toLowerCase().includes(q) || r.hs_id === q)) continue;
-    if (cq && !p.contacts.some((c) => contactMatches(c, cq))) continue;
     if (!inRange(r.last_activity_ms, f.companyDate)) continue;
-    if (!inRange(r.rooftop_last_activity_ms, f.rooftopDate)) continue;
     const calc = calcAccount(prep, p, f, nowMs);
     // The team-member (activity owner) filter narrows to accounts that member worked in the period.
     if (f.member && calc.periodActs.length === 0) continue;
@@ -231,13 +225,12 @@ export function filterAccounts(prep: Prepared, f: AoFilters, nowMs: number): Acc
 }
 
 // ── drill-down predicates (KPI click → filtered account list) ────────────────
-export function drillMatch(c: AccountCalc, key: string, prep: Prepared): boolean {
+export function drillMatch(c: AccountCalc, key: string): boolean {
   if (!key) return true;
   const [k, v] = key.split(":");
   const icpYes = c.p.icp === "yes";
   switch (k) {
     case "type": return c.p.type.type === v;
-    case "unknown_reason": return c.p.type.type === "unknown" && c.p.type.reason === decodeURIComponent(v);
     case "cstatus": return v === "inactive_60plus" ? (c.cStatus === "inactive_60" || c.cStatus === "inactive_90") : c.cStatus === v;
     case "rstatus": return v === "inactive_60plus" ? (c.rStatus === "inactive_60" || c.rStatus === "inactive_90") : c.rStatus === v;
     case "never_contacted": return c.neverContacted;
@@ -257,68 +250,8 @@ export function drillMatch(c: AccountCalc, key: string, prep: Prepared): boolean
     case "icp_contacted_no_demo": return icpYes && c.touchpoints > 0 && c.demosBooked === 0;
     case "team": return c.p.row.team === v;
     case "owner": return (c.p.row.owner_id ?? "") === v;
-    case "gd": return c.p.gdKey === decodeURIComponent(v);
-    case "dq": return dqMatch(c, v, prep);
     default: return true;
   }
-}
-
-// ── data-quality checks (each is a predicate so its count and its drill list agree) ──
-export const DQ_CHECKS: { key: string; label: string; detail: string }[] = [
-  { key: "nonstandard_gd_flag", label: "Non-standard GD flag value", detail: "GD flag holds the label text (e.g. \"Yes\") instead of the option value true/false." },
-  { key: "missing_country", label: "Country missing", detail: "Excluded by the default USA country filter — set Country to All to see them." },
-  { key: "no_company_date", label: "No company Last Activity Date", detail: "HubSpot has never logged an activity on the company record." },
-  { key: "no_rooftop_date", label: "Rooftop Last Activity missing", detail: "Custom property empty — treated as unknown, not as never contacted." },
-  { key: "company_needs_review", label: "Company date needs review", detail: "Future-dated, or Last Contacted set while Last Activity Date is empty." },
-  { key: "rooftop_needs_review", label: "Rooftop date needs review", detail: "Rooftop Last Activity is in the future." },
-  { key: "icp_unset", label: "Company ICP not set", detail: "`icp` is empty — counted as ICP Unknown, never assumed." },
-  { key: "contacted_conflict", label: "Last Contacted empty but a touch exists", detail: "HubSpot Last Contacted is empty, yet a call/email/meeting is associated in the synced window." },
-  { key: "activity_after_last_activity", label: "Logged activity newer than Last Activity Date", detail: "A synced activity is >1 day newer than the company's Last Activity Date (HubSpot rollup lag or association-only activity)." },
-  { key: "owner_not_on_roster", label: "Account owner not a tracked rep", detail: "Account owner is not in the TrackerAI roster (e.g. the salesops placeholder user)." },
-  { key: "owner_pod_mismatch", label: "Account owner's roster pod ≠ assigned team", detail: "The owner's AE pod in the roster differs from the company's Team Accounts value." },
-  { key: "duplicate_domain", label: "Domain shared with another account", detail: "Possible duplicate rooftop or GD HQ record — not merged automatically." },
-  { key: "contact_count_mismatch", label: "Contact count ≠ HubSpot", detail: "Synced contact associations differ from HubSpot's num_associated_contacts." },
-];
-
-function dqMatch(c: AccountCalc, key: string, prep: Prepared): boolean {
-  const r = c.p.row;
-  switch (key) {
-    case "nonstandard_gd_flag": return isNonStandardGdFlag(r.is_group);
-    case "missing_country": return c.p.country === "Unknown";
-    case "no_company_date": return r.last_activity_ms == null;
-    case "no_rooftop_date": return r.rooftop_last_activity_ms == null;
-    case "company_needs_review": return c.cStatus === "needs_review";
-    case "rooftop_needs_review": return c.rStatus === "needs_review";
-    case "icp_unset": return c.p.icp === "unknown";
-    case "contacted_conflict": return c.contactedConflict;
-    case "activity_after_last_activity": {
-      const newest = c.p.acts[0]?.ts_ms;
-      return newest != null && (r.last_activity_ms == null || newest > r.last_activity_ms + 86_400_000);
-    }
-    case "owner_not_on_roster": return !!r.owner_id && !prep.rosterById.has(r.owner_id);
-    case "owner_pod_mismatch": {
-      const pod = r.owner_id ? prep.rosterById.get(r.owner_id)?.podKey : null;
-      return !!pod && prep.podToTeam.get(pod) !== r.team;
-    }
-    case "duplicate_domain": return dupDomains(prep).has(normDomain(r.domain) ?? "\u0000");
-    case "contact_count_mismatch": return r.num_contacts != null && r.num_contacts !== c.p.contacts.length;
-    default: return false;
-  }
-}
-
-const normDomain = (d: string | null) => {
-  const s = (d ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "");
-  return s || null;
-};
-const dupCache = new WeakMap<Prepared, Set<string>>();
-function dupDomains(prep: Prepared): Set<string> {
-  let s = dupCache.get(prep);
-  if (s) return s;
-  const seen = new Map<string, number>();
-  for (const p of prep.companies) { const d = normDomain(p.row.domain); if (d) seen.set(d, (seen.get(d) ?? 0) + 1); }
-  s = new Set([...seen].filter(([, n]) => n > 1).map(([d]) => d));
-  dupCache.set(prep, s);
-  return s;
 }
 
 // ── aggregates ───────────────────────────────────────────────────────────────
@@ -479,11 +412,9 @@ export interface ContactListRow {
 export function contactRows(accts: AccountCalc[], prep: Prepared, f: AoFilters): ContactListRow[] {
   const out: ContactListRow[] = [];
   const seen = new Set<string>();
-  const cq = f.contactQ.trim();
   for (const c of accts) {
     for (const ct of c.p.contacts) {
       if (seen.has(ct.hs_id)) continue; // a contact on two accounts is listed once (first account)
-      if (cq && !contactMatches(ct, cq)) continue;
       seen.add(ct.hs_id);
       let calls = 0, connected = 0, emails = 0, meetings = 0, touch = 0, engaged = false;
       let lastCall: number | null = null, lastEmail: number | null = null;
@@ -518,57 +449,4 @@ export function contactRows(accts: AccountCalc[], prep: Prepared, f: AoFilters):
     }
   }
   return out;
-}
-
-// ── breakdowns ──────────────────────────────────────────────────────────────
-export function groupBy<K>(accts: AccountCalc[], keyOf: (c: AccountCalc) => K | K[] | null): Map<K, AccountCalc[]> {
-  const m = new Map<K, AccountCalc[]>();
-  for (const c of accts) {
-    const k = keyOf(c);
-    if (k == null) continue;
-    for (const key of Array.isArray(k) ? k : [k]) { const l = m.get(key) ?? []; l.push(c); m.set(key, l); }
-  }
-  return m;
-}
-
-/** Activity-owner view: for each owner, only THEIR activities on the accounts (accounts re-scoped
- *  per owner), so one account worked by two reps contributes each rep's own work. */
-export function byActivityOwner(accts: AccountCalc[]): Map<string, AccountCalc[]> {
-  const m = new Map<string, AccountCalc[]>();
-  for (const c of accts) {
-    const byOwner = new Map<string, AoActivityRow[]>();
-    for (const a of c.periodActs) {
-      if (!a.owner_id) continue;
-      const l = byOwner.get(a.owner_id) ?? []; l.push(a); byOwner.set(a.owner_id, l);
-    }
-    for (const [owner, acts] of byOwner) {
-      const scoped = rescope(c, acts);
-      const l = m.get(owner) ?? []; l.push(scoped); m.set(owner, l);
-    }
-  }
-  return m;
-}
-
-function rescope(c: AccountCalc, acts: AoActivityRow[]): AccountCalc {
-  const s: AccountCalc = {
-    ...c, periodActs: acts, calls: 0, connected: 0, emails: 0, meetings: 0, notes: 0, tasks: 0,
-    meetingsCompleted: 0, meetingsCanceled: 0, meetingsNoShow: 0, meetingsRescheduled: 0, meetingsNoOutcome: 0,
-    meetingDispositionCalls: 0, touchpoints: 0, demosBooked: 0, demosCompleted: 0,
-    bookedDealIds: [], completedDealIds: [], // demos are credited by deal owner, never by activity owner
-    contactsTouched: new Set(), contactsReached: new Set(), activityOwners: new Set([acts[0]?.owner_id ?? ""]), lastTouchPeriodMs: null,
-  };
-  for (const a of acts) {
-    if (a.type === "note") s.notes++;
-    else if (a.type === "task") s.tasks++;
-    if (isCall(a)) { s.calls++; if (isConnected(a.disposition)) s.connected++; if (isMeetingDisposition(a)) s.meetingDispositionCalls++; }
-    if (isEmail(a)) s.emails++;
-    if (isMeeting(a)) s.meetings++;
-    if (isTouch(a)) {
-      s.touchpoints++;
-      if (s.lastTouchPeriodMs == null || a.ts_ms > s.lastTouchPeriodMs) s.lastTouchPeriodMs = a.ts_ms;
-      for (const id of a.contact_ids) s.contactsTouched.add(id);
-      if (isEngaged(a)) for (const id of a.contact_ids) s.contactsReached.add(id);
-    }
-  }
-  return s;
 }

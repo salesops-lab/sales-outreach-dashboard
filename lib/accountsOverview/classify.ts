@@ -1,6 +1,5 @@
 /** Accounts Overview — pure per-record classifiers (no I/O; unit-tested). Every rule here maps to
  *  a verified HubSpot property; anything missing or contradictory is surfaced, never guessed. */
-import { AO_REQUIRE_EXPLICIT_NON_GD_FLAG } from "../../config/accounts-overview";
 import { AccountType, AoCompanyRow, IcpStatus, InactivityStatus } from "./types";
 
 const DAY_MS = 86_400_000;
@@ -32,55 +31,30 @@ export function contactIcp(raw: string | null | undefined): IcpStatus {
   return "unknown";
 }
 
-/** GD flag: the option value is "true"/"false"; a few records hold the LABEL "Yes" (non-standard
- *  write). Returns null when unset or unrecognized. */
-export function gdFlag(raw: string | null | undefined): boolean | null {
-  const s = (raw ?? "").trim().toLowerCase();
-  if (s === "true" || s === "yes") return true;
-  if (s === "false" || s === "no") return false;
-  return null;
-}
+/** The HubSpot "GD Name" property (`gd_name`) — the one field the account-type rule keys on. */
+export const gdNameOf = (c: AoCompanyRow) => c.gd_name?.trim() || null;
 
-export const isNonStandardGdFlag = (raw: string | null | undefined) =>
-  !!raw && !["true", "false"].includes(raw.trim());
-
-/** The GD display name: gd_name, else dealership_group_name. */
-export const gdNameOf = (c: AoCompanyRow) => (c.gd_name?.trim() || c.group_name?.trim() || null);
-
-/** GD association key — the existing dashboard's rule (aggregate.ts unitKeyFor): gd_id, else the
- *  normalized group name. The flag is NOT required (it is frequently unset on real GD rooftops). */
+/** Unique-GD key: the GD Name, case-insensitive. */
 export function gdKeyOf(c: AoCompanyRow): string | null {
-  if (!blank(c.gd_id)) return `id:${c.gd_id!.trim()}`;
-  const g = c.group_name?.trim();
-  return g ? `name:${g.toLowerCase()}` : null;
+  const g = gdNameOf(c);
+  return g ? g.toLowerCase() : null;
 }
 
 export interface TypeVerdict { type: AccountType; reason: string | null }
 
 /**
- * Account type from verified properties:
- *  - Group Dealership: associated to a GD (gd_id or dealership_group_name) AND a GD name is
- *    populated, and the flag does not say "No".
- *  - Single Franchise / Independent: Type of Dealership set, NO GD association, flag explicitly
- *    "No" (or merely not "Yes" when AO_REQUIRE_EXPLICIT_NON_GD_FLAG is off).
- *  - Unknown/Needs Review: anything missing or contradictory — with the reason.
+ * Account type — the same filters a user would apply in HubSpot:
+ *  - Group Dealership: GD Name is set.
+ *  - Single Franchise: GD Name empty + Type of Dealership = Franchise.
+ *  - Single Independent: GD Name empty + Type of Dealership = Independent.
+ *  - Unknown: GD Name empty and Type of Dealership empty.
  */
-export function classifyAccountType(c: AoCompanyRow, requireExplicitFlag = AO_REQUIRE_EXPLICIT_NON_GD_FLAG): TypeVerdict {
-  const flag = gdFlag(c.is_group);
-  const key = gdKeyOf(c);
-  const name = gdNameOf(c);
+export function classifyAccountType(c: AoCompanyRow): TypeVerdict {
+  if (gdNameOf(c)) return { type: "group", reason: null };
   const t = (c.type_of_dealership ?? "").trim().toLowerCase();
-
-  if (key) {
-    if (flag === false) return { type: "unknown", reason: "GD flag is No but a GD ID / group name is set" };
-    if (!name) return { type: "unknown", reason: "GD ID set but GD name missing" };
-    return { type: "group", reason: null };
-  }
-  if (flag === true) return { type: "unknown", reason: "GD flag is Yes but no GD ID / name" };
-  if (flag === null && requireExplicitFlag) return { type: "unknown", reason: "GD flag not set (cannot confirm non-group)" };
   if (t === "franchise") return { type: "single_franchise", reason: null };
   if (t === "independent") return { type: "independent", reason: null };
-  return { type: "unknown", reason: "Type of Dealership missing" };
+  return { type: "unknown", reason: "GD Name and Type of Dealership both empty" };
 }
 
 /** Whole elapsed days (floor of 24h units between absolute instants — timezone-independent), the
@@ -127,7 +101,7 @@ export const STATUS_LABEL: Record<InactivityStatus, string> = {
 
 export const TYPE_LABEL: Record<AccountType, string> = {
   single_franchise: "Single Franchise",
-  independent: "Independent",
+  independent: "Single Independent",
   group: "Group Dealership",
-  unknown: "Unknown / Needs Review",
+  unknown: "Unknown",
 };
