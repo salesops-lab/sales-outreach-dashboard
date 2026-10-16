@@ -26,7 +26,7 @@ const ct = (id: string, cos: string[], o: Partial<AoContactRow> = {}): AoContact
   hs_id: id, first_name: "Pat", last_name: id, title: null, email: `${id}@x.com`, phone: null,
   owner_id: "co1", icp: null, last_activity_ms: null, last_contacted_ms: null, company_ids: cos, ...o,
 });
-const act = (id: string, o: Partial<AoActivityRow>): AoActivityRow => ({
+const act = (id: string, o: Partial<AoActivityRow> = {}): AoActivityRow => ({
   hs_id: id, type: "call", ts_ms: NOW - 2 * DAY, owner_id: "rep1", direction: "OUTBOUND", disposition: null,
   duration_ms: null, email_replied: false, meeting_outcome: null, meeting_start_ms: null, subject: null,
   company_ids: ["1"], contact_ids: [], via_contact_only: false, ...o,
@@ -39,8 +39,10 @@ const filters = (o: Partial<AoFilters> = {}): AoFilters => ({
 
 const data = (o: Partial<AoData> = {}): AoData => ({
   companies: [], contacts: [], activities: [], deals: [],
-  state: { status: "ok", started_at: null, finished_at: null, window_start_ms: NOW - 180 * DAY, counts: {}, reconciliation: [], owners: { o1: { name: "Owner One", active: true }, rep1: { name: "Rep One", active: true } }, error: null },
-  roster: [{ ownerId: "rep1", name: "Rep One", podKey: "neelima", kind: "sdr", active: true }],
+  state: {
+    status: "ok", started_at: null, finished_at: null, window_start_ms: NOW - 180 * DAY, counts: {}, reconciliation: [], error: null,
+    owners: { o1: { name: "Owner One", active: true, teams: [] }, rep1: { name: "Rep One", active: true, teams: ["362172280"] } }, // rep1 ∈ Neelima Team
+  },
   ...o,
 });
 
@@ -81,9 +83,10 @@ describe("classify", () => {
 
 describe("rows", () => {
   it("maps HubSpot records and drops undatable activities", () => {
-    const r = companyRow("5", { name: " A ", team_accounts: "Prince", gd_name: "G", notes_last_updated: "2026-10-01T00:00:00Z", num_associated_contacts: "3" });
+    const r = companyRow("5", { name: " A ", hubspot_team_id: "362172539", gd_name: "G", notes_last_updated: "2026-10-01T00:00:00Z", num_associated_contacts: "3" });
     expect(r.name).toBe("A");
-    expect(r.team).toBe("Prince");
+    expect(r.team).toBe("Prince");                                              // HubSpot Team id → team
+    expect(companyRow("6", { hubspot_team_id: "343956526" }).team).toBeNull();     // other HubSpot teams are out of scope
     expect(r.gd_name).toBe("G");
     expect(r.num_contacts).toBe(3);
     expect(activityRow("call", "1", { hs_timestamp: null }, ["5"], [], false)).toBeNull();
@@ -132,11 +135,11 @@ describe("engine", () => {
     const prep = prepare(data({
       companies: [
         co("1", { gd_name: "Alpha Group" }), co("2", { state: "CA" }), co("3", { type_of_dealership: "Independent" }),
-        co("4", { type_of_dealership: null }), co("5", { country: null }), co("6", { team: "Archit" }),
+        co("4", { type_of_dealership: null }), co("5", { country: null }), co("6", { team: null }),
       ],
     }));
     const ids = (f: Partial<AoFilters>) => filterAccounts(prep, filters(f), NOW).map((a) => a.p.row.hs_id).sort();
-    expect(ids({})).toEqual(["1", "2", "3", "4"]);                 // USA default; Archit out of scope
+    expect(ids({})).toEqual(["1", "2", "3", "4"]);                 // USA default; companies outside the four teams excluded
     expect(ids({ country: "all" })).toEqual(["1", "2", "3", "4", "5"]);
     expect(ids({ gdName: "alpha group" })).toEqual(["1"]);
     expect(ids({ state: "ca" })).toEqual(["2"]);
@@ -153,7 +156,17 @@ describe("engine", () => {
         co("7", { type_of_dealership: null }),
       ],
     }));
-    const v = computeView(prep, filters(), "accounts", LIST, NOW) as { cards: { key: string; count: number }[]; unique_gds: number; list: { total: number } };
+    const v = computeView(prep, filters(), "accounts", LIST, NOW) as {
+      cards: { key: string; count: number }[]; unique_gds: number; list: { total: number };
+      team_table: { team: string; total: number; single_franchise: number; independent: number; group: number }[];
+    };
+    const all = v.team_table.find((r) => r.team === "")!;
+    expect(all).toMatchObject({ total: 7, single_franchise: 3, independent: 1, group: 2 }); // + 1 unknown = 7
+    expect(v.team_table.find((r) => r.team === "Neelima")!.total).toBe(7);
+    // the team table always shows all four teams, even when the Team filter narrows the cards
+    const narrowed = computeView(prep, filters({ teams: ["Prince"] }), "accounts", LIST, NOW) as { team_table: { team: string; total: number }[]; cards: { key: string; count: number }[] };
+    expect(narrowed.team_table.find((r) => r.team === "Neelima")!.total).toBe(7);
+    expect(narrowed.cards[0].count).toBe(0);
     const count = (k: string) => v.cards.find((c) => c.key === k)!.count;
     expect(v.cards.map((c) => c.key)).toEqual(ACCOUNT_CARDS.map((c) => c.key));
     expect(count("")).toBe(7);
@@ -200,16 +213,16 @@ describe("engine", () => {
     expect(v.stages).toEqual([{ key: "discovery_done", label: "Discovery Call Done", count: 1 }]);
     expect(v.icp.find((r) => r.icp === "yes")).toMatchObject({ accounts: 2, contacted: 1, not_contacted: 1, demo_booked: 1 });
     expect(v.members).toEqual([{
-      owner_id: "rep1", name: "Rep One", team: "Neelima", on_roster: true,
+      owner_id: "rep1", name: "Rep One", team: "Neelima", in_team: true,
       accounts_owned: 1, accounts_worked: 2, calls: 2, emails: 1, touchpoints: 3, touch_per_account: 1.5,
     }]);
   });
 });
 
 describe("params", () => {
-  it("defaults to USA, all four teams, the last 3 months", () => {
+  it("opens with no filters: all countries, all four teams, the last 3 months", () => {
     const p = parseRequest(new URLSearchParams(""), NOW, NOW - 180 * DAY);
-    expect(p.filters.country).toBe("USA");
+    expect(p.filters.country).toBe("all");
     expect(p.filters.teams).toEqual([]);
     expect(p.view).toBe("accounts");
     expect(p.filters.activityFrom).toBe(resolveRange("3m", null, null, NOW).fromMs);

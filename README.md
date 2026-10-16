@@ -30,7 +30,7 @@ US/Eastern time windows (Today / Yesterday / This week / Last week / This month 
   over the full call-transcript + email-body corpus, plus BANTIC analysis from the call-scoring
   pipeline.
 - **Accounts Overview** (`/accounts-overview`): Neelima · Prince · Saarthak · Central team accounts
-  (HubSpot `team_accounts`) with a HubSpot-style filter bar and two tabs — **Accounts** (counts by
+  (by HubSpot Team) with a HubSpot-style filter bar and two tabs — **Accounts** (counts by
   type and recency that drill a searchable list + CSV) and **Pipeline & Activity** (demos, deal
   stages, ICP contacted vs not, per-member touchpoints). Isolated tables + sync; see
   `docs/accounts-overview.md`.

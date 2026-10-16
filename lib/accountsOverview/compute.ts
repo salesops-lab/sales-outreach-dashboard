@@ -15,7 +15,7 @@
  *  - Account Owner, Assigned Team, Activity Owner and Contact Owner are never interchanged.
  */
 import { isConnected, MEETING_SCHEDULED_GUID, MEETING_RESCHEDULED_GUID, dispositionLabel } from "../../config/dispositions";
-import { AO_DEEP_INACTIVE_DAYS, AO_INACTIVE_DAYS, AO_TEAMS } from "../../config/accounts-overview";
+import { AO_DEEP_INACTIVE_DAYS, AO_INACTIVE_DAYS, AO_TEAMS, teamValueById } from "../../config/accounts-overview";
 import {
   classifyAccountType, companyIcp, companyStatus, contactIcp, daysSince, gdKeyOf, gdNameOf,
   normalizeCountry, rooftopStatus, TypeVerdict,
@@ -25,15 +25,12 @@ import {
   DateRange, IcpStatus, InactivityStatus,
 } from "./types";
 
-export interface RosterRef { ownerId: string; name: string; podKey: string | null; kind: "sdr" | "ae"; active: boolean }
-
 export interface AoData {
   companies: AoCompanyRow[];
   contacts: AoContactRow[];
   activities: AoActivityRow[];
   deals: AoDealRow[];
   state: AoSyncState;
-  roster: RosterRef[];
 }
 
 interface PCompany {
@@ -56,8 +53,8 @@ export interface Prepared {
   byId: Map<string, PCompany>;
   contactById: Map<string, AoContactRow>;
   ownerName: (id: string | null | undefined) => string;
-  rosterById: Map<string, RosterRef>;
-  podToTeam: Map<string, string>;
+  /** The owner's team among the four (from HubSpot team membership), or null. */
+  teamOfOwner: (id: string | null | undefined) => string | null;
 }
 
 const isCall = (a: AoActivityRow) => a.type === "call" && (a.direction ?? "").toUpperCase() === "OUTBOUND";
@@ -93,14 +90,13 @@ export function prepare(data: AoData): Prepared {
       hasWindowTouch: !!firstTouch, lastTouchWindowMs: firstTouch?.ts_ms ?? null,
     };
   });
-  const rosterById = new Map(data.roster.map((r) => [r.ownerId, r]));
   const owners = data.state.owners ?? {};
-  const ownerName = (id: string | null | undefined) => {
-    if (!id) return "—";
-    return owners[id]?.name || rosterById.get(id)?.name || `Owner ${id}`;
+  const ownerName = (id: string | null | undefined) => (id ? owners[id]?.name || `Owner ${id}` : "—");
+  const teamOfOwner = (id: string | null | undefined) => {
+    for (const t of (id && owners[id]?.teams) || []) { const v = teamValueById(t); if (v) return v; }
+    return null;
   };
-  const podToTeam = new Map<string, string>(AO_TEAMS.map((t) => [t.podKey, t.value]));
-  return { data, companies, byId: new Map(companies.map((c) => [c.row.hs_id, c])), contactById, ownerName, rosterById, podToTeam };
+  return { data, companies, byId: new Map(companies.map((c) => [c.row.hs_id, c])), contactById, ownerName, teamOfOwner };
 }
 
 // ── per-account calc for the reporting period ────────────────────────────────
@@ -375,7 +371,7 @@ export function toListRow(c: AccountCalc, prep: Prepared): AccountListRow {
 
 export interface ActivityListRow {
   id: string; type: string; ts_ms: number; direction: string | null; outcome: string | null; subject: string | null;
-  owner_id: string | null; owner_name: string; owner_pod: string | null;
+  owner_id: string | null; owner_name: string; owner_team: string | null;
   company_ids: string[]; company_names: string[]; teams: string[]; contact_ids: string[]; contact_names: string[];
   duration_ms: number | null; meeting_status: string | null; meeting_start_ms: number | null;
   connected: boolean | null; counted_as_touch: boolean; via_contact_only: boolean;
@@ -387,7 +383,7 @@ export function toActivityRow(a: AoActivityRow, prep: Prepared): ActivityListRow
     id: a.hs_id, type: a.type, ts_ms: a.ts_ms, direction: a.direction,
     outcome: a.type === "call" ? (a.disposition ? dispositionLabel(a.disposition) : "No disposition") : a.type === "email" ? (a.email_replied ? "Replied" : null) : null,
     subject: a.subject, owner_id: a.owner_id, owner_name: prep.ownerName(a.owner_id),
-    owner_pod: a.owner_id ? prep.rosterById.get(a.owner_id)?.podKey ?? null : null,
+    owner_team: prep.teamOfOwner(a.owner_id),
     company_ids: cos.map((p) => p.row.hs_id), company_names: cos.map((p) => p.row.name ?? p.row.hs_id),
     teams: [...new Set(cos.map((p) => p.row.team ?? ""))].filter(Boolean),
     contact_ids: a.contact_ids,

@@ -19,7 +19,7 @@ export interface AoCompanyRow {
   state: string | null;
   city: string | null;
   owner_id: string | null;         // hubspot_owner_id — ACCOUNT owner
-  team: string | null;             // team_accounts — ASSIGNED team
+  team: string | null;             // HubSpot Team (hubspot_team_id → Neelima/Prince/Saarthak/Central)
   icp: string | null;              // raw `icp` (yes/no/empty)
   type_of_dealership: string | null;
   is_group: string | null;         // raw flag value ("true"/"false"/legacy "Yes"/null)
@@ -81,7 +81,7 @@ export interface AoSyncState {
   window_start_ms: number | null;
   counts: Record<string, number>;
   reconciliation: AoReconRow[];
-  owners: Record<string, { name: string; active: boolean }>;
+  owners: Record<string, { name: string; active: boolean; teams?: string[] }>; // teams = HubSpot team ids
   error: string | null;
 }
 
@@ -94,7 +94,7 @@ export interface DateRange { fromMs: number | null; toMs: number | null; include
 export type DealerTypeFilter = "all" | "franchise" | "independent" | "none";
 
 export interface AoFilters {
-  teams: string[];                 // team_accounts values; [] = all four
+  teams: string[];                 // team values; [] = all four
   member: string | null;           // ACTIVITY owner id (team member who did the work)
   country: string;                 // "USA" (default) | "all" | normalized country label | "Unknown"
   state: string;                   // "all" | exact state text (case-insensitive)

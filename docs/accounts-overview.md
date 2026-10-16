@@ -8,11 +8,13 @@ API (`/api/accounts-overview`, `/api/accounts-overview/account/[id]`), page and 
 
 ## Why a separate pipeline
 
-The main spine (`sdr_companies`, `sdr_activities`) holds only companies **owned by tracked reps**
-and activity **performed by tracked reps**. Team assignment in HubSpot is not ownership: of the
-4,932 companies on the four teams, ~3,300 are owned by the `salesops .` placeholder user and many
-others by AEs / pod leads outside the roster. Building on the spine would silently drop most team
-accounts and most non-roster activity, so the feature pulls its own company-centric slice.
+Team = the company's **HubSpot Team** (`hubspot_team_id`, set by HubSpot from the company owner's
+team). As of 2026-10-16: Neelima 13,992 · Saarthak 5,502 · Prince 2,603 · Central 378 companies.
+The main spine only holds companies owned by — and activity done by — the TrackerAI roster, so it
+would miss many of these. The feature therefore pulls its own slice.
+
+> History: the first version used the hand-filled `team_accounts` dropdown (Saarthak = 1,723). The
+> user confirmed HubSpot's "Team" is the right field (Saarthak = 5,502), so it was switched.
 
 ## Verified HubSpot sources (portal 242626590, checked twice on 2026-10-16)
 
@@ -20,7 +22,7 @@ Pass 1 = CRM reporting (SQL group-bys). Pass 2 = CRM Search API `total`s. They m
 
 | Concept | HubSpot source | Notes |
 |---|---|---|
-| **Assigned team** | company `team_accounts` (enum) | Options: Archit, Neelima, Saarthak, Central, Prince. Independent of the owner. |
+| **Team** | company `hubspot_team_id` ("HubSpot Team") | Team ids in `config/accounts-overview.ts`; members = owners in that HubSpot team |
 | **Account owner** | company `hubspot_owner_id` | |
 | **Activity owner** | engagement `hubspot_owner_id` | per call / email / meeting / note / task |
 | **Contact owner** | contact `hubspot_owner_id` | |
@@ -40,11 +42,12 @@ Pass 1 = CRM reporting (SQL group-bys). Pass 2 = CRM Search API `total`s. They m
 
 ## The page (simplified on 2026-10-16 at the user's request)
 
-One filter bar — Team, Team member (who did the work), GD Name, Type of Dealership, Country (default
-USA), State, Account owner, Last Activity Date (preset / custom / "no date"), Activity type, Activity
-date range (default last 3 months) — and two tabs:
+One filter bar — Team, Team member (who did the work), GD Name, Type of Dealership, Country, State,
+Account owner, Last Activity Date (preset / custom / "no date"), Activity type, Activity date range
+(default last 3 months) — and two tabs. The page opens with **no filters** (all countries, all teams).
 
-- **Accounts**: 8 cards; clicking one filters the searchable, sortable account list below (CSV export,
+- **Accounts**: a "Companies by HubSpot Team" table (total / Single Franchise / Single Independent /
+  Group per team + all four), then 8 cards; clicking a number or card filters the searchable, sortable account list below (CSV export,
   click a company for its full detail + timeline).
 - **Pipeline & Activity**: demos booked/completed, deals by current stage, ICP contacted vs not,
   and a per-team-member table (accounts owned, accounts worked, calls, emails, touchpoints per account).
@@ -53,7 +56,7 @@ date range (default last 3 months) — and two tabs:
 
 | Metric | Definition |
 |---|---|
-| Total accounts | company records with `team_accounts` ∈ selected teams, after filters (groups + single rooftops) |
+| Total accounts | companies whose HubSpot Team is one of the selected teams, after filters (groups + single rooftops) |
 | Group Dealership | **GD Name** (`gd_name`) is set |
 | Single Franchise | GD Name empty + Type of Dealership = Franchise |
 | Single Independent | GD Name empty + Type of Dealership = Independent |
@@ -83,18 +86,15 @@ Each activity counts once per account; team / rep totals de-duplicate by activit
 
 Every run records (in `sdr_ao_sync_state`): HubSpot Search `total` per team vs records pulled
 vs rows re-counted in Postgres after the write; Σ `num_associated_contacts` vs association rows read;
-associated contact ids vs readable contact records; excluded team counts (Archit).
+associated contact ids vs readable contact records.
 
 ## Known data gaps (live, 2026-10-16)
 
-- **Meeting outcome** almost never recorded → completed / cancelled meeting counts understate reality.
-- **Contact ICP** set on 158 of 13,692 contacts associated to any `team_accounts` company (all five teams).
-- **Country** blank on ~680 team accounts (hidden by the default USA filter; pick "All countries" to see them).
-- **Rooftop Last Activity** blank on ~3,480 of 4,932 team accounts.
-- **Team vs owner**: most team accounts are owned by the `salesops .` placeholder; roster pod ≠ team is common.
-- **Roster AE owner ids**: several AE ids in `config/reps.ts` / `config/team-structure.ts` (e.g. Arun Divya Prakash 207645325029,
-  Liam Fallon 300786392766, Pallav Pandey 303562897138, Jatin Arora 129303672507) do not match their HubSpot **owner** ids
-  (82407666, 160575588, 68537322, 159882968). Not changed here.
+- **Meeting outcome** is rarely recorded in HubSpot, so completed / cancelled meeting counts understate reality.
+- **Contact ICP** (`icp_non_icp`) is set on very few contacts.
+- **Country** is free text and often blank — filtering by a country hides blank-country companies.
+- **Roster AE owner ids**: several AE ids in `config/reps.ts` / `config/team-structure.ts` do not match their HubSpot owner ids
+  (e.g. Liam Fallon 300786392766 vs owner 160575588). Not used by this feature; not changed here.
 
 ## Setup
 

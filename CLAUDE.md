@@ -80,7 +80,7 @@ spec is the design record for its feature; the phase-1/2/3 ones are historical).
 | `npm run agent:run` | One hot-account agent pass (OpenAI reasoning → `sdr_agent_watches`); needs `OPENAI_API_KEY` |
 | `npm run agent:briefs` | Refresh grounded Account Briefs for watched accounts (timeline + content + deals → `sdr_agent_briefs`); needs `OPENAI_API_KEY`; runs as the 2nd step of `spine-agent.yml` |
 | `npm run embed:content` | Index new `sdr_activity_content` rows into `sdr_embeddings` (pgvector; idempotent, new rows only); needs `OPENAI_API_KEY`; runs nightly after `content:backfill` in `spine-reconcile.yml` |
-| `npm run ao:sync` | Full rebuild of the Accounts Overview tables (`sdr_ao_*`) from HubSpot (company-centric: team_accounts companies → contacts/deals/calls/emails/meetings/notes/tasks; 180-day activity window) + reconciliation; needs `supabase/accounts_overview_schema.sql`; runs every 6 h via `accounts-overview-sync.yml` |
+| `npm run ao:sync` | Full rebuild of the Accounts Overview tables (`sdr_ao_*`) from HubSpot (companies in the four HubSpot Teams → contacts/deals; calls/emails/meetings/notes/tasks searched in the 180-day window and kept when on those companies) + reconciliation; needs `supabase/accounts_overview_schema.sql`; runs every 6 h via `accounts-overview-sync.yml` |
 | `npm run intel:signals` | Mine typed signals (objections/competitors/buying signals/risks/commitments/timing) from new content → `sdr_intel_signals`; idempotent via the `sdr_intel_scans` ledger, newest content first, cap `INTEL_SCAN_CAP` (default 2500/run); needs `OPENAI_API_KEY`; runs nightly after `embed:content` |
 
 All non-`dev`/`build`/`lint`/`test`/`start` scripts run via `tsx --conditions=react-server` — required so
@@ -582,14 +582,17 @@ ET "today", computed fresh at click time.
 
 Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-bearing rules:
 
-- **Assigned team = company `team_accounts`** (HubSpot enum), NOT the owner and NOT the roster pod.
-  The four in-scope values + their roster pod keys live in `config/accounts-overview.ts` (`AO_TEAMS`);
-  Archit is a real value deliberately excluded and reported. Account owner (company owner), activity
-  owner (engagement owner) and contact owner are separate fields everywhere — the roster pod is only a
-  lens, and pod≠team is flagged in Data Quality, never "fixed".
-- **Isolated by design**: the spine only holds tracked reps' companies/activity, but most team accounts
-  are owned by the `salesops .` placeholder — so the feature has its own company-centric pull
-  (`lib/accountsOverview/pull.ts` + `sync.ts`, full rebuild with `run_id` pruning). Don't route it
+- **Team = the company's HubSpot Team** (`hubspot_team_id`, set from the owner's team) — the
+  "Team" a user filters on in HubSpot (user-confirmed: Saarthak = 5,502). Team ids live in
+  `config/accounts-overview.ts` (`AO_TEAMS`); team **members** come from HubSpot team membership
+  (`/crm/v3/owners` → teams, stored in the sync state), not the TrackerAI roster. Do NOT use the
+  hand-filled `team_accounts` dropdown (first version did; numbers were ~3× too small). Account
+  owner, activity owner and contact owner stay separate fields everywhere.
+- **Isolated by design**: the spine only holds tracked reps' companies/activity, so the feature has its
+  own pull (`lib/accountsOverview/pull.ts` + `sync.ts`, full rebuild with `run_id` pruning): team
+  companies via an hs_object_id-cursor Search (Neelima ≈ 14k > the 10k cap), activities via
+  hs_timestamp-sliced Search over the window (slices auto-split under the cap), then activity →
+  company/contact associations. Don't route it
   through `sdr_companies`/`sdr_activities`, and don't route spine metrics through `sdr_ao_*`.
 - **Deliberately simple UI (user decision, 2026-10-16)**: one filter bar (Team, Team member, GD Name,
   Type of Dealership, Country, State, Account owner, Last Activity Date, Activity type, activity date
