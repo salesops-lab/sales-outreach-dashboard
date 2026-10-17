@@ -6,6 +6,8 @@ import { loadTeamStructure } from "../../lib/team/load";
 import { setUserActive, savePod, removePod, saveManager, removeManager, addRole, removeRole } from "./actions";
 import { AddUserForm } from "../../components/admin/AddUserForm";
 import IntegrityQueue from "../../components/admin/IntegrityQueue";
+import { AccessManager } from "../../components/admin/AccessManager";
+import { AuthUserLite, buildAccessList } from "../../lib/access/members";
 
 export const dynamic = "force-dynamic";
 
@@ -27,11 +29,25 @@ export default async function AdminPage() {
   const roles = await rows(sb?.from("sdr_roles").select("email,role,team_id").order("role"));
   const syncState = await rows(sb?.from("sdr_sync_state").select("*").order("key"));
 
+  // Everyone who has signed in (Supabase Auth — the same Google login) + saved permissions.
+  const authUsers: AuthUserLite[] = [];
+  let authError: string | null = null;
+  if (sb) {
+    for (let page = 1; page <= 20; page++) {
+      const { data, error } = await sb.auth.admin.listUsers({ page, perPage: 1000 });
+      if (error) { authError = error.message; break; }
+      authUsers.push(...data.users);
+      if (data.users.length < 1000) break;
+    }
+  }
+
   const podName = new Map(ts.pods.map((p) => [p.key, p.name]));
   const mgrName = new Map(Object.values(ts.managers).map((m) => [m.key, m.name]));
   const members = [...ts.members].sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind.localeCompare(b.kind)));
   const active = members.filter((m) => m.active);
   const inactive = members.filter((m) => !m.active);
+
+  const access = buildAccessList(authUsers, roles as { email: string; role: string }[], ts.members);
 
   const seeded = ts.members.some((m) => m.email); // DB seed sets emails; config fallback has none
 
@@ -58,6 +74,22 @@ export default async function AdminPage() {
           types are matched to a HubSpot user (so the owner id is always correct) and get a targeted history pull automatically.
         </p>
         <AddUserForm managers={Object.values(ts.managers)} pods={ts.pods} />
+      </section>
+
+      {/* ── Dashboard access ─────────────────────────────────────────── */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-5">
+        <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-slate-500">Dashboard access</h2>
+        <p className="mb-4 text-xs text-slate-500">
+          People sign in with <strong>Google</strong> using their <strong>@spyne.ai</strong> account — nothing else to set up.
+          <strong> Admin</strong> = sees everything + this Admin page and Slack Reports. <strong>Member</strong> = uses the
+          dashboard (it opens on their own book or team if they are a rep or manager), no admin pages. Add someone here to set their permission before their first login.
+        </p>
+        {authError && (
+          <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            Couldn’t read the sign-in list ({authError}) — showing saved permissions only.
+          </div>
+        )}
+        <AccessManager members={access} me={(user?.email ?? "").toLowerCase()} />
       </section>
 
       {/* ── Roster ────────────────────────────────────────────────────── */}

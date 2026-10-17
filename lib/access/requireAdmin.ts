@@ -4,8 +4,9 @@
 import { supabaseServer } from "../supabase/server";
 import { resolveViewer } from "./resolve";
 
-export async function requireAdmin(): Promise<void> {
+export async function requireAdmin(): Promise<string> {
   const { data: { user } } = await supabaseServer().auth.getUser();
   const viewer = await resolveViewer(user?.email ?? "");
   if (!viewer.isAdmin) throw new Error("forbidden");
+  return (user?.email ?? "").toLowerCase();
 }
