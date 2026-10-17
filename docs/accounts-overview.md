@@ -34,28 +34,43 @@ Pass 1 = CRM reporting (SQL group-bys). Pass 2 = CRM Search API `total`s. They m
 | Last contacted | company `notes_last_contacted` (HubSpot-maintained, excludes notes) | |
 | Rooftop last activity | company `rooftop_last_activity` (custom) | null ≠ never contacted |
 | Contact count reference | company `num_associated_contacts` | reconciled against association reads |
-| Country | company `country` (free text) | normalized: us / usa / united states → USA; blank → Unknown |
+| Country | company `country_dropdown` ("Country Dropdown"), else free-text `country` | dropdown is far more complete (119,645 "United States" vs ~67k free-text US variants) |
+| **US TAM** | company `country_dropdown` = United States | 119,645 on 2026-10-17 — matches the old TAM dashboard |
 | Calls | `calls` — `hs_timestamp`, `hs_call_direction`, `hs_call_disposition`, `hs_call_duration`, `hs_call_title` | |
 | Emails | `emails` — `hs_email_direction`, `hs_email_subject`, `hs_email_reply_count` | |
 | Meetings | `meetings` — `hs_timestamp`, `hs_meeting_outcome`, `hs_meeting_start_time`, `hs_meeting_title` | outcome is mostly unset (939 of 954 meetings since 2026-07-16) |
 | Demos | Auto-Pipeline deals; `hs_v2_date_entered_<stage>` via `stageEventsOf` | same `demoScheduledMs` / `demoCompletedMs` as the rest of the app |
 
-## The page (simplified on 2026-10-16 at the user's request)
+## The page (redesigned 2026-10-17 at the user's request — no filter applied by default)
 
-One filter bar — Team, Team member (who did the work), GD Name, Type of Dealership, Country, State,
-Account owner, Last Activity Date (preset / custom / "no date"), Activity type, Activity date range
-(default last 3 months) — and two tabs. The page opens with **no filters** (all countries, all teams).
+**Accounts tab**, top to bottom:
+1. **HubSpot US accounts (TAM)** — every US company in HubSpot (Country Dropdown = United States):
+   total, Single Independent, Single Franchise, Group Dealership + distinct GD Names. Counted at
+   sync time (Search totals + the grouped companies' GD Names); **not** affected by the filters.
+   Live check 2026-10-17: 119,645 = group 21,454 + SI 89,626 + SF 8,565 (+0 unknown).
+2. **Filters** — Team, Team member (= account owner), GD Name, Type of Dealership, Company ICP,
+   Country, State, Last Activity Date, Activity date range (default: all synced activity), Activity type.
+3. **Teams** — one card per team (total / Group / Single Franchise / Single Independent, members,
+   accounts by owner role). Click a team → its members.
+4. **Team members** — one card per HubSpot team member (role from the TrackerAI roster: Manager /
+   SDR / AE) plus anyone else who owns accounts in the team, with their account counts. Click → list.
+5. **Accounts** — 8 cards that drill one searchable, sortable list (CSV, click a company for detail).
 
-- **Accounts**: a "Companies by HubSpot Team" table (total / Single Franchise / Single Independent /
-  Group per team + all four), then 8 cards; clicking a number or card filters the searchable, sortable account list below (CSV export,
-  click a company for its full detail + timeline).
-- **Pipeline & Activity**: demos booked/completed, deals by current stage, ICP contacted vs not,
-  and a per-team-member table (accounts owned, accounts worked, calls, emails, touchpoints per account).
+**Deals & Activity tab**:
+1. **Accounts worked in the last 60 days** — per team and per member: accounts, worked < 60 days,
+   not worked 60+ days, no activity recorded, % worked (HubSpot Last Activity Date). Numbers open the list.
+2. **Demos & deals — last completed quarter** (Q3 2026 = Jul–Sep on 2026-10-17): totals, per team,
+   pipeline by current stage, per member (demos booked as SDR, demos conducted as deal owner, deals
+   in their name) and a deal-detail list. Only that quarter's deals are stored.
+3. **Are members using their accounts and contacts?** — per member, over their own accounts in the
+   activity date range: accounts contacted / not, contacts reached / not, ICP accounts contacted,
+   average calls and emails per ICP account.
 
 ## Metric definitions
 
 | Metric | Definition |
 |---|---|
+| US TAM | companies with Country Dropdown = United States (HubSpot-wide, every team or none) |
 | Total accounts | companies whose HubSpot Team is one of the selected teams, after filters (groups + single rooftops) |
 | Group Dealership | **GD Name** (`gd_name`) is set |
 | Single Franchise | GD Name empty + Type of Dealership = Franchise |
@@ -69,11 +84,15 @@ Account owner, Last Activity Date (preset / custom / "no date"), Activity type, 
 | Emails | `hs_email_direction` = EMAIL (outgoing) |
 | Touchpoints | calls + emails (meetings, notes, tasks are shown but not counted) |
 | Contacted (account, date range) | ≥ 1 touchpoint on the account or its associated contacts in the range |
-| Demos booked / completed | Auto-Pipeline deals whose demo booking / completion falls in the range; a deal counts once even if on several accounts |
-| Deal pipeline | deals booked in the range, grouped by their current stage |
-| Demo booking rate | accounts with a demo booked ÷ accounts contacted |
-| Member: accounts owned / worked | owned = HubSpot company owner; worked = accounts they called or emailed in the range |
-| Member: touchpoints per account | (their calls + emails) ÷ accounts worked |
+| Quarter deals (stored) | Auto-Pipeline deals created, demo-booked or demo-done in the last completed quarter; team = the deal's company team, else the SDR's / deal owner's HubSpot team; deals with no team in the four are dropped |
+| Demos booked (quarter) | deal entered Discovery Call Done in the quarter — credited to the SDR (`sdr_owner`) |
+| Demos conducted (quarter) | first entry into Demo Done / Accepted / In Discussion in the quarter — credited to the deal owner (AE) |
+| Deals in their name | quarter deals where the member is the SDR or the deal owner |
+| Pipeline by current stage | quarter deals grouped by their current canonical stage |
+| Worked < 60 days / not worked 60+ | Last Activity Date < 60 days / ≥ 60 days ago (per account owner) |
+| Member role | TrackerAI roster: AE-pod lead or SDR manager/TL = Manager, else SDR / AE; not in roster = blank |
+| Contacts reached | contacts on the member's accounts that appear on a call or email in the activity date range |
+| Avg calls / emails per ICP | the member's own calls / emails on their ICP accounts ÷ their ICP accounts |
 
 Activity date is HubSpot `hs_timestamp` for every type. For **tasks** that is the task's due date,
 so future-dated tasks fall outside the synced window and are not listed; tasks are never touchpoints.
@@ -92,12 +111,15 @@ associated contact ids vs readable contact records.
 
 - **Meeting outcome** is rarely recorded in HubSpot, so completed / cancelled meeting counts understate reality.
 - **Contact ICP** (`icp_non_icp`) is set on very few contacts.
-- **Country** is free text and often blank — filtering by a country hides blank-country companies.
+- **Country**: the dropdown is used first; companies with neither field set show as "Unknown".
+- **Distinct GD Names**: the user's reference is 3,431; the sync counts GD Names case-insensitively among
+  US companies (HubSpot's report API caps a GROUP BY at 500 rows, so this could not be cross-checked there).
 - **Roster AE owner ids**: several AE ids in `config/reps.ts` / `config/team-structure.ts` do not match their HubSpot owner ids
   (e.g. Liam Fallon 300786392766 vs owner 160575588). Not used by this feature; not changed here.
 
 ## Setup
 
-1. Apply `supabase/accounts_overview_schema.sql` (additive).
+1. Apply `supabase/accounts_overview_schema.sql` (additive; re-runnable — the 2026-10-17 version adds
+   five deal-detail columns to `sdr_ao_deals`, so re-run it before the next sync).
 2. Run the **Accounts Overview sync** workflow (or `npm run ao:sync` locally) — ~10–15 min; then every 6 h.
 3. Open `/accounts-overview`. Until a sync completes, the page says so instead of showing zeros.

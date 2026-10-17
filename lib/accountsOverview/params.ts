@@ -1,11 +1,12 @@
 /** Query-string ⇄ AoFilters (pure; shared by the API routes and tests) + CSV serialization. */
 import { AO_TEAMS } from "../../config/accounts-overview";
-import { resolveRange } from "./ranges";
-import { AoActivityType, AoFilters, DateRange, DealerTypeFilter } from "./types";
-import { AO_VIEWS, AoView, ListOpts } from "./views";
+import { resolveRange as resolveRange, lastQuarter } from "./ranges";
+import { AoActivityType, AoFilters, DateRange, DealerTypeFilter, IcpFilter } from "./types";
+import { AO_VIEWS, AoView, DealOpts, ListOpts } from "./views";
 
 const ACTS: AoActivityType[] = ["call", "email", "meeting", "note", "task"];
 const DEALER: DealerTypeFilter[] = ["all", "franchise", "independent", "none"];
+const ICP: IcpFilter[] = ["all", "yes", "no", "unknown"];
 
 /** Last Activity Date filter: a preset/custom range, or "none" = only accounts with NO date. */
 function dateFilter(sp: URLSearchParams, prefix: string, nowMs: number): DateRange | null {
@@ -18,7 +19,7 @@ function dateFilter(sp: URLSearchParams, prefix: string, nowMs: number): DateRan
 }
 
 export interface ParsedRequest {
-  filters: AoFilters; view: AoView; list: ListOpts; csv: boolean; warnings: string[];
+  filters: AoFilters; view: AoView; list: ListOpts; deal: DealOpts; csv: boolean; warnings: string[];
 }
 
 export function parseRequest(sp: URLSearchParams, nowMs: number, windowStartMs: number | null): ParsedRequest {
@@ -28,24 +29,28 @@ export function parseRequest(sp: URLSearchParams, nowMs: number, windowStartMs: 
   const activityTypes = (sp.get("atypes") ?? "").split(",").filter((s): s is AoActivityType => ACTS.includes(s as AoActivityType));
   const dealer = sp.get("dtype") as DealerTypeFilter | null;
 
-  const periodPreset = sp.get("ppreset") ?? "3m";
-  let { fromMs, toMs } = resolveRange(periodPreset === "any" ? "3m" : periodPreset, sp.get("pfrom"), sp.get("pto"), nowMs);
+  // Activity date range — default: everything the sync holds (no filter applied).
+  const periodPreset = sp.get("ppreset") ?? "all";
+  const allSynced = { fromMs: windowStartMs ?? 0, toMs: nowMs + 86_400_000 };
+  let { fromMs, toMs } = periodPreset === "all" || periodPreset === "any" ? allSynced
+    : periodPreset === "lq" ? lastQuarter(nowMs)
+    : resolveRange(periodPreset, sp.get("pfrom"), sp.get("pto"), nowMs);
   if (fromMs == null || toMs == null) {
-    warnings.push("Custom date range incomplete — using Last 3 Months.");
-    ({ fromMs, toMs } = resolveRange("3m", null, null, nowMs));
+    warnings.push("Custom date range incomplete — showing all synced activity.");
+    ({ fromMs, toMs } = allSynced);
   }
-  if (windowStartMs != null && fromMs! < windowStartMs) {
+  if (windowStartMs != null && periodPreset !== "all" && fromMs! < windowStartMs) {
     warnings.push(`Activity before ${new Date(windowStartMs).toISOString().slice(0, 10)} is not synced, so it is not counted.`);
   }
 
   const filters: AoFilters = {
     teams,
-    member: sp.get("member") || null,
     country: sp.get("country") || "all",
     state: sp.get("state") || "all",
     gdName: (sp.get("gd") ?? "").slice(0, 200),
     dealerType: dealer && DEALER.includes(dealer) ? dealer : "all",
     owner: sp.get("owner") || null,
+    icp: ICP.includes(sp.get("icp") as IcpFilter) ? (sp.get("icp") as IcpFilter) : "all",
     companyDate: dateFilter(sp, "c", nowMs),
     q: (sp.get("q") ?? "").slice(0, 200),
     activityTypes,
@@ -60,7 +65,12 @@ export function parseRequest(sp: URLSearchParams, nowMs: number, windowStartMs: 
     page: Number(sp.get("page")) || 1,
     pageSize: Number(sp.get("size")) || 50,
   };
-  return { filters, view, list, csv: sp.get("format") === "csv", warnings };
+  const kind = sp.get("dkind");
+  const deal: DealOpts = {
+    team: sp.get("dteam") ?? "", owner: sp.get("downer") ?? "",
+    kind: kind === "booked" || kind === "conducted" ? kind : "all",
+  };
+  return { filters, view, list, deal, csv: sp.get("format") === "csv", warnings };
 }
 
 // ── CSV ───────────────────────────────────────────────────────────────────────

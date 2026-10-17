@@ -8,11 +8,11 @@ create table if not exists sdr_ao_companies (
   hs_id                    text primary key,
   name                     text,
   domain                   text,
-  country                  text,      -- raw free text (normalized in the app: us/usa/united states → USA)
+  country                  text,      -- Country Dropdown, else free-text Country (normalized in the app)
   state                    text,
   city                     text,
   owner_id                 text,      -- hubspot_owner_id — ACCOUNT owner
-  team                     text,      -- team_accounts — ASSIGNED team (independent of owner)
+  team                     text,      -- HubSpot Team (hubspot_team_id → Neelima/Prince/Saarthak/Central)
   icp                      text,      -- raw company `icp`
   type_of_dealership       text,
   is_group                 text,      -- raw is_this_is_a_part_of_group_dealership_
@@ -80,6 +80,12 @@ create table if not exists sdr_ao_deals (
   updated_at        timestamptz not null default now()
 );
 create index if not exists idx_sdr_ao_deals_run on sdr_ao_deals (run_id);
+-- 2026-10-17: deal details for the last-quarter deal tracking (only that quarter's deals are stored).
+alter table sdr_ao_deals add column if not exists deal_name  text;
+alter table sdr_ao_deals add column if not exists amount     numeric;
+alter table sdr_ao_deals add column if not exists created_ms bigint;
+alter table sdr_ao_deals add column if not exists close_ms   bigint;
+alter table sdr_ao_deals add column if not exists team       text;  -- company team, else SDR's / owner's team
 
 create table if not exists sdr_ao_sync_state (
   id         integer primary key check (id = 1),

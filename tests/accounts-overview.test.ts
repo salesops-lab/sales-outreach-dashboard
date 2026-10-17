@@ -2,12 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
   classifyAccountType, companyIcp, companyStatus, contactIcp, normalizeCountry, rooftopStatus,
 } from "../lib/accountsOverview/classify";
-import { prepare, filterAccounts, tally, drillMatch, AoData, toListRow } from "../lib/accountsOverview/compute";
-import { computeView, ACCOUNT_CARDS } from "../lib/accountsOverview/views";
-import { activityRow, companyRow, dealRow } from "../lib/accountsOverview/rows";
+import { prepare, filterAccounts, tally, drillMatch, AoData, toListRow, rolesFromRoster } from "../lib/accountsOverview/compute";
+import { computeView, dealList, ACCOUNT_CARDS } from "../lib/accountsOverview/views";
+import { activityRow, companyRow, dealInWindow, dealRow } from "../lib/accountsOverview/rows";
 import { parseRequest, toCsv } from "../lib/accountsOverview/params";
-import { resolveRange } from "../lib/accountsOverview/ranges";
-import { AoActivityRow, AoCompanyRow, AoContactRow, AoFilters } from "../lib/accountsOverview/types";
+import { lastQuarter } from "../lib/accountsOverview/ranges";
+import { AoActivityRow, AoCompanyRow, AoContactRow, AoDealRow, AoFilters } from "../lib/accountsOverview/types";
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 9, 16, 16, 0, 0); // 2026-10-16 12:00 ET
@@ -33,7 +33,7 @@ const act = (id: string, o: Partial<AoActivityRow> = {}): AoActivityRow => ({
 });
 
 const filters = (o: Partial<AoFilters> = {}): AoFilters => ({
-  teams: [], member: null, country: "USA", state: "all", gdName: "", dealerType: "all", owner: null,
+  teams: [], country: "USA", state: "all", gdName: "", dealerType: "all", owner: null, icp: "all",
   companyDate: null, q: "", activityTypes: [], activityFrom: NOW - 90 * DAY, activityTo: NOW + DAY, ...o,
 });
 
@@ -127,7 +127,7 @@ describe("engine", () => {
     expect(one.meetingsCompleted).toBe(0);     // scheduled ≠ completed
     expect(tally(accts).calls).toBe(3);        // a8 sits on two accounts but is one call
     expect(filterAccounts(prep, filters({ owner: "o2" }), NOW).map((a) => a.p.row.hs_id)).toEqual(["2"]);
-    expect(filterAccounts(prep, filters({ member: "nobody" }), NOW)).toHaveLength(0);
+    expect(filterAccounts(prep, filters({ owner: "nobody" }), NOW)).toHaveLength(0);
     expect(toListRow(one, prep).activity_owners).toEqual(["Rep One"]);
   });
 
@@ -146,6 +146,8 @@ describe("engine", () => {
     expect(ids({ dealerType: "independent" })).toEqual(["3"]);
     expect(ids({ dealerType: "none" })).toEqual(["4"]);
     expect(ids({ companyDate: { fromMs: NOW - 2 * DAY, toMs: NOW + DAY } })).toEqual([]);
+    expect(ids({ icp: "no" })).toEqual([]);
+    expect(ids({ icp: "yes" })).toEqual(["1", "2", "3", "4"]);
   });
 
   it("card counts equal their drill-down lists and the type cards never overlap", () => {
@@ -156,17 +158,19 @@ describe("engine", () => {
         co("7", { type_of_dealership: null }),
       ],
     }));
-    const v = computeView(prep, filters(), "accounts", LIST, NOW) as {
+    type V = {
       cards: { key: string; count: number }[]; unique_gds: number; list: { total: number };
-      team_table: { team: string; total: number; single_franchise: number; independent: number; group: number }[];
+      teams: { team: string; total: number; single_franchise: number; independent: number; group: number; members: number }[];
+      members: { owner_id: string; total: number; in_team: boolean }[];
     };
-    const all = v.team_table.find((r) => r.team === "")!;
-    expect(all).toMatchObject({ total: 7, single_franchise: 3, independent: 1, group: 2 }); // + 1 unknown = 7
-    expect(v.team_table.find((r) => r.team === "Neelima")!.total).toBe(7);
-    // the team table always shows all four teams, even when the Team filter narrows the cards
-    const narrowed = computeView(prep, filters({ teams: ["Prince"] }), "accounts", LIST, NOW) as { team_table: { team: string; total: number }[]; cards: { key: string; count: number }[] };
-    expect(narrowed.team_table.find((r) => r.team === "Neelima")!.total).toBe(7);
+    const v = computeView(prep, filters(), "accounts", LIST, NOW) as unknown as V;
+    expect(v.teams.find((r) => r.team === "Neelima")).toMatchObject({ total: 7, single_franchise: 3, independent: 1, group: 2, members: 1 });
+    // the team cards always show all four teams, even when the Team filter narrows the cards
+    const narrowed = computeView(prep, filters({ teams: ["Prince"] }), "accounts", LIST, NOW) as unknown as V;
+    expect(narrowed.teams.find((r) => r.team === "Neelima")!.total).toBe(7);
     expect(narrowed.cards[0].count).toBe(0);
+    // members = HubSpot team members (rep1, 0 accounts) + owners of accounts in scope (o1, not in a team)
+    expect(v.members.map((m) => [m.owner_id, m.total, m.in_team])).toEqual([["rep1", 0, true], ["o1", 7, false]]);
     const count = (k: string) => v.cards.find((c) => c.key === k)!.count;
     expect(v.cards.map((c) => c.key)).toEqual(ACCOUNT_CARDS.map((c) => c.key));
     expect(count("")).toBe(7);
@@ -195,45 +199,103 @@ describe("engine", () => {
     expect(accts.find((a) => a.p.row.hs_id === "2")!.neverContacted).toBe(false);
   });
 
-  it("pipeline: demos once per deal, ICP contacted vs not, per-member work", () => {
-    const prep = prepare(data({
-      companies: [co("1", { owner_id: "rep1" }), co("2", { icp: "no" }), co("3")],
-      activities: [act("a1"), act("a2", { type: "email", direction: "EMAIL" }), act("a3", { company_ids: ["2"] })],
-      deals: [
-        { hs_id: "d1", stage_key: "discovery_done", deal_owner_id: "ae", sdr_owner_id: "rep1", company_ids: ["1", "2"], demo_booked_ms: NOW - 3 * DAY, demo_completed_ms: null },
-        { hs_id: "d2", stage_key: "demo_done", deal_owner_id: "ae", sdr_owner_id: "rep1", company_ids: ["1"], demo_booked_ms: NOW - 200 * DAY, demo_completed_ms: NOW - DAY },
+  it("activity tab: 60-day work per team + member, quarter deals by SDR / owner lens, utilization", () => {
+    const Q = { from_ms: NOW - 100 * DAY, to_ms: NOW - 10 * DAY, label: "Q3 2026 (Jul–Sep)" };
+    const deal = (o: Partial<AoDealRow>): AoDealRow => ({
+      hs_id: "d", stage_key: "discovery_done", deal_owner_id: "ae", sdr_owner_id: "rep1", company_ids: ["1"],
+      demo_booked_ms: null, demo_completed_ms: null, team: "Neelima", ...o,
+    });
+    const base = data();
+    const prep = prepare({
+      ...base,
+      state: { ...base.state, quarter: Q, owners: { ...base.state.owners, ae: { name: "AE One", active: true, teams: ["362172280"] } } },
+      roles: { rep1: "SDR", ae: "AE" },
+      companies: [
+        co("1", { owner_id: "rep1" }), co("2", { owner_id: "rep1", icp: "no", last_activity_ms: NOW - 70 * DAY }),
+        co("3", { owner_id: "rep1", last_activity_ms: null, last_contacted_ms: null }), co("4", { team: "Prince" }),
       ],
-    }));
-    const v = computeView(prep, filters(), "pipeline", LIST, NOW) as {
-      demos: { booked: number; completed: number }; stages: { key: string; count: number }[];
-      icp: { icp: string; accounts: number; contacted: number; not_contacted: number; demo_booked: number }[];
-      members: { owner_id: string; accounts_owned: number; accounts_worked: number; calls: number; emails: number; touchpoints: number; touch_per_account: number | null }[];
-    };
-    expect(v.demos).toMatchObject({ booked: 1, completed: 1 });   // d1 on two accounts = one demo
-    expect(v.stages).toEqual([{ key: "discovery_done", label: "Discovery Call Done", count: 1 }]);
-    expect(v.icp.find((r) => r.icp === "yes")).toMatchObject({ accounts: 2, contacted: 1, not_contacted: 1, demo_booked: 1 });
-    expect(v.members).toEqual([{
-      owner_id: "rep1", name: "Rep One", team: "Neelima", in_team: true,
-      accounts_owned: 1, accounts_worked: 2, calls: 2, emails: 1, touchpoints: 3, touch_per_account: 1.5,
-    }]);
+      contacts: [ct("c1", ["1"]), ct("c2", ["1"])],
+      activities: [
+        act("a1", { contact_ids: ["c1"] }), act("a2", { type: "email", direction: "EMAIL" }),
+        act("a3", { owner_id: "other" }),
+      ],
+      deals: [
+        deal({ hs_id: "d1", demo_booked_ms: NOW - 50 * DAY }),
+        deal({ hs_id: "d2", stage_key: "demo_done", demo_booked_ms: NOW - 200 * DAY, demo_completed_ms: NOW - 20 * DAY }),
+        deal({ hs_id: "d3", team: "Prince", sdr_owner_id: "x", deal_owner_id: "y", demo_booked_ms: NOW - 40 * DAY }),
+      ],
+    });
+    const v = computeView(prep, filters({ country: "all" }), "activity", LIST, NOW) as any;
+    expect(v.activity_teams.find((t: any) => t.team === "Neelima")).toMatchObject({ accounts: 3, worked_60: 1, not_worked_60: 1, no_activity: 1 });
+    const rep = v.activity_members.find((m: any) => m.owner_id === "rep1");
+    expect(rep).toMatchObject({ role: "SDR", accounts: 3, worked_60: 1, not_worked_60: 1, no_activity: 1 });
+    expect(v.deal_teams.find((t: any) => t.team === "Neelima")).toMatchObject({ deals: 2, booked: 1, conducted: 1 });
+    expect(v.deal_teams.find((t: any) => t.team === "Prince")).toMatchObject({ deals: 1, booked: 1 });
+    // booked → SDR, conducted → deal owner (AE)
+    expect(v.deal_members.find((m: any) => m.owner_id === "rep1")).toMatchObject({ booked: 1, conducted: 0, deals: 2 });
+    expect(v.deal_members.find((m: any) => m.owner_id === "ae")).toMatchObject({ booked: 0, conducted: 1, deals: 2, role: "AE" });
+    const u = v.utilization.find((m: any) => m.owner_id === "rep1");
+    expect(u).toMatchObject({ accounts: 3, accounts_contacted: 1, contacts: 2, contacts_reached: 1, contacts_not_reached: 1,
+      icp_accounts: 2, icp_contacted: 1, icp_calls: 1, icp_emails: 1, avg_calls_per_icp: 0.5, avg_emails_per_icp: 0.5 });
+    // deal list: one person's booked demos / everything for a team
+    expect(dealList(prep, filters(), { team: "", owner: "rep1", kind: "booked" }).map((d) => d.id)).toEqual(["d1"]);
+    expect(dealList(prep, filters(), { team: "Prince", owner: "", kind: "all" }).map((d) => d.id)).toEqual(["d3"]);
+    expect(dealList(prep, filters({ teams: ["Neelima"] }), { team: "", owner: "", kind: "conducted" }).map((d) => d.id)).toEqual(["d2"]);
+  });
+
+  it("roles come from the roster: pod leads / managers = Manager, else SDR / AE", () => {
+    const roles = rolesFromRoster({
+      pods: [{ leadEmail: "lead@spyne.ai" }],
+      managers: { m: { ownerId: "3" } },
+      members: [
+        { ownerId: "1", email: "LEAD@spyne.ai", kind: "ae", active: true },
+        { ownerId: "2", email: "a@spyne.ai", kind: "sdr", active: true },
+        { ownerId: "3", email: "b@spyne.ai", kind: "sdr", active: true },
+        { ownerId: "4", email: "c@spyne.ai", kind: "ae", active: true },
+      ],
+    });
+    expect(roles).toEqual({ 1: "Manager", 2: "SDR", 3: "Manager", 4: "AE" });
+  });
+});
+
+describe("quarter", () => {
+  it("is the last COMPLETED calendar quarter in US/Eastern", () => {
+    const q = lastQuarter(NOW); // 2026-10-16
+    expect(q.label).toBe("Q3 2026 (Jul–Sep)");
+    expect(new Date(q.fromMs).toISOString()).toBe("2026-07-01T04:00:00.000Z"); // midnight EDT
+    expect(new Date(q.toMs).toISOString()).toBe("2026-10-01T04:00:00.000Z");
+    expect(lastQuarter(Date.UTC(2027, 1, 10)).label).toBe("Q4 2026 (Oct–Dec)");
+  });
+
+  it("keeps a deal when it was created, booked or demoed inside the window", () => {
+    const d = dealRow("9", { pipeline: "1001348836", dealstage: "1534610164", dealname: "Acme", amount: "1200",
+      createdate: "2026-06-20T00:00:00Z", hs_v2_date_entered_1534610164: String(Date.UTC(2026, 6, 3)) }, ["5"], "Prince")!;
+    expect(d).toMatchObject({ deal_name: "Acme", amount: 1200, team: "Prince" });
+    const q = lastQuarter(NOW);
+    expect(dealInWindow(d, q.fromMs, q.toMs)).toBe(true);                // booked Jul 3
+    expect(dealInWindow({ ...d, demo_booked_ms: null }, q.fromMs, q.toMs)).toBe(false); // created in June only
   });
 });
 
 describe("params", () => {
-  it("opens with no filters: all countries, all four teams, the last 3 months", () => {
+  it("opens with no filters: all countries, all four teams, every synced activity", () => {
     const p = parseRequest(new URLSearchParams(""), NOW, NOW - 180 * DAY);
     expect(p.filters.country).toBe("all");
     expect(p.filters.teams).toEqual([]);
+    expect(p.filters).toMatchObject({ owner: null, icp: "all", dealerType: "all", state: "all", companyDate: null, activityTypes: [] });
     expect(p.view).toBe("accounts");
-    expect(p.filters.activityFrom).toBe(resolveRange("3m", null, null, NOW).fromMs);
+    expect(p.filters.activityFrom).toBe(NOW - 180 * DAY);
+    expect(p.warnings).toEqual([]);
+    expect(parseRequest(new URLSearchParams("ppreset=lq"), NOW, null).filters.activityFrom).toBe(lastQuarter(NOW).fromMs);
   });
 
   it("reads the new filters and rejects unknown teams", () => {
-    const p = parseRequest(new URLSearchParams("teams=Prince,Archit&gd=Alpha&dtype=independent&state=TX&cpreset=none&view=pipeline"), NOW, null);
+    const p = parseRequest(new URLSearchParams("teams=Prince,Archit&gd=Alpha&dtype=independent&state=TX&cpreset=none&icp=yes&view=activity&dteam=Prince&dkind=booked"), NOW, null);
     expect(p.filters.teams).toEqual(["Prince"]);
-    expect(p.filters).toMatchObject({ gdName: "Alpha", dealerType: "independent", state: "TX" });
+    expect(p.filters).toMatchObject({ gdName: "Alpha", dealerType: "independent", state: "TX", icp: "yes" });
+    expect(p.deal).toEqual({ team: "Prince", owner: "", kind: "booked" });
     expect(p.filters.companyDate).toEqual({ fromMs: 0, toMs: 0, includeMissing: true });
-    expect(p.view).toBe("pipeline");
+    expect(p.view).toBe("activity");
   });
 
   it("escapes CSV and neutralizes formula injection", () => {

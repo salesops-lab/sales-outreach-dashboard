@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, { params }: { params: { companyId: s
   const nowMs = Date.now();
   const { filters } = parseRequest(req.nextUrl.searchParams, nowMs, prep.data.state.window_start_ms);
   // Detail shows the whole synced window, all activity types, everyone's work on the account.
-  const full = { ...filters, member: null, activityTypes: [],
+  const full = { ...filters, activityTypes: [],
     activityFrom: prep.data.state.window_start_ms ?? 0, activityTo: nowMs + 86_400_000 };
   const period = calcAccount(prep, p, filters, nowMs);
   const whole = calcAccount(prep, p, full, nowMs);
