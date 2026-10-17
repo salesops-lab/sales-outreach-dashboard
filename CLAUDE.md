@@ -111,7 +111,7 @@ and the Intelligence 2.0 pure logic — signal prompt/coercion/rescan (`intel-si
 the Focus merge incl. revival-window edges (`intel-focus.test.ts`), and the Radar
 ranking incl. the zombie sink (`intel-radar.test.ts`); and the Slack Reports Call Blitz fold
 (`slack-reports.test.ts`); and the Accounts Overview classifiers + engine + params
-(`accounts-overview.test.ts`) — 27 files / 264 tests in all. Never
+(`accounts-overview.test.ts`); and the Admin dashboard-access merge (`access-members.test.ts`) — 28 files / 267 tests in all. Never
 import a `server-only`-guarded module (`lib/supabase/admin.ts`,
 `lib/callquality/fetch.ts`, `lib/agent/openai|store|runner.ts`, `lib/slackReports/build.ts` — which
 transitively pulls in `supabaseAdmin` via `lib/spine/store.ts`/`lib/team/load.ts`) from a test — it
@@ -157,7 +157,9 @@ scripts/spine-{backfill,delta,reconcile}.ts · reaggregate.ts   (GitHub Actions 
   components/AppNav.tsx  shared top-nav: Overview · Accounts · Attention · Admin
   app/page.tsx   resolveViewer(email) + snapshot (units stripped)  → components/Dashboard.tsx (rep table, Demo funnel, SDR/AE toggle)
   app/accounts   resolveViewer + snapshot → components/Accounts.tsx  (owned book by demo-status; lazy per-rep units via /book)
-  app/admin      control center: add/update users (email→owner), roster + soft-delete, manage pods/managers, roles, sync health   (admin only)
+  app/admin      control center: dashboard access (everyone who has signed in + pre-added emails, Admin/Member
+                 permission → sdr_roles; pure merge in lib/access/members.ts; login stays Google @spyne.ai),
+                 add/update users (email→owner), roster + soft-delete, manage pods/managers, roles, sync health   (admin only)
   app/attention  the Intelligence hub (IntelligenceHub: Ask · Focus · Radar · Themes · Board) ←
                  sdr_agent_watches/briefs SSR for the Board tab; other tabs fetch /api/intel/*
   app/api/rep/[ownerId]/book|calls   lazy per-rep drill-downs   ·   app/api/agent/watches

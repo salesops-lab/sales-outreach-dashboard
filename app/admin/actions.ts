@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "../../lib/supabase/admin";
 import { requireAdmin } from "../../lib/access/requireAdmin";
 import { invalidateTeamCache } from "../../lib/team/load";
+import { isAllowedEmail } from "../../lib/auth/domain";
+import { Permission, permissionOf, roleWriteFor } from "../../lib/access/members";
 
 function str(fd: FormData, key: string): string { return String(fd.get(key) ?? "").trim(); }
 /** Stable key from a display name: lowercase first token, alnum only (e.g. "Prabhjeet Kaur" → "prabhjeet"). */
@@ -183,6 +185,47 @@ export async function removeManager(formData: FormData) {
   const { error } = await sb().from("sdr_managers").update({ active: false, updated_at: new Date().toISOString() }).eq("manager_key", key);
   if (error) throw new Error(error.message);
   invalidateTeamCache();
+  revalidatePath("/admin");
+}
+
+// ── Dashboard access (who can log in + Admin/Member permission) ─────────────────
+
+/** Give someone access or change their permission (Admin / Member). Login itself is unchanged —
+ *  Google sign-in with a @spyne.ai account — so this only records the permission in sdr_roles,
+ *  then re-reads it and reports what the database holds. Never throws. */
+export async function setAccess(_prev: UserResult | null, formData: FormData): Promise<UserResult> {
+  try {
+    const me = await requireAdmin();
+    const email = str(formData, "email").toLowerCase();
+    const target = str(formData, "permission") as Permission;
+    if (!isAllowedEmail(email)) return { ok: false, message: "Email must be a @spyne.ai address (they sign in with Google)." };
+    if (target !== "admin" && target !== "member") return { ok: false, message: "Choose Admin or Member." };
+    if (email === me && target !== "admin") return { ok: false, message: "You can’t remove your own Admin permission — ask another admin." };
+
+    const c = sb();
+    const { data: cur } = await c.from("sdr_roles").select("role").eq("email", email).maybeSingle();
+    const write = roleWriteFor(target, cur?.role ?? null);
+    if (write) {
+      const { error } = await c.from("sdr_roles").upsert({ email, role: write.role, team_id: null }, { onConflict: "email" });
+      if (error) return { ok: false, message: `Database write failed: ${error.message}` };
+    }
+    revalidatePath("/admin");
+
+    const { data: after } = await c.from("sdr_roles").select("role").eq("email", email).maybeSingle();
+    if (permissionOf(after?.role) !== target) return { ok: false, message: `Change did not save for ${email} — please retry.` };
+    return { ok: true, message: `✓ ${email} is now ${target === "admin" ? "an Admin" : "a Member"} (verified in the database).` };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Delete a saved permission (only offered for people who have never signed in, e.g. a typo). */
+export async function removeAccess(formData: FormData) {
+  const me = await requireAdmin();
+  const email = str(formData, "email").toLowerCase();
+  if (!email || email === me) throw new Error("cannot remove yourself");
+  const { error } = await sb().from("sdr_roles").delete().eq("email", email);
+  if (error) throw new Error(error.message);
   revalidatePath("/admin");
 }
 
