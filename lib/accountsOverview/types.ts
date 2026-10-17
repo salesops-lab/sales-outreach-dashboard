@@ -15,7 +15,7 @@ export interface AoCompanyRow {
   hs_id: string;
   name: string | null;
   domain: string | null;
-  country: string | null;          // raw HubSpot free text
+  country: string | null;          // HubSpot Country Dropdown, else the free-text Country
   state: string | null;
   city: string | null;
   owner_id: string | null;         // hubspot_owner_id — ACCOUNT owner
@@ -72,6 +72,19 @@ export interface AoDealRow {
   company_ids: string[];
   demo_booked_ms: number | null;     // demoScheduledMs() — entered Discovery Call Done
   demo_completed_ms: number | null;  // demoCompletedMs() — first Demo Done/Accepted/In Discussion
+  // Deal details (only last-quarter deals are stored). Null on rows from before the schema update.
+  deal_name?: string | null;
+  amount?: number | null;
+  created_ms?: number | null;
+  close_ms?: number | null;
+  team?: string | null;              // company's HubSpot Team, else the SDR's / deal owner's team
+}
+
+/** HubSpot-wide US TAM (Country Dropdown = United States) — counts only, computed at sync time. */
+export interface AoTam {
+  total: number; group: number; single_franchise: number; independent: number; unknown: number;
+  unique_gds: number;                // distinct GD Names (case-insensitive) among US companies
+  checked_at: string;
 }
 
 export interface AoSyncState {
@@ -81,7 +94,9 @@ export interface AoSyncState {
   window_start_ms: number | null;
   counts: Record<string, number>;
   reconciliation: AoReconRow[];
-  owners: Record<string, { name: string; active: boolean; teams?: string[] }>; // teams = HubSpot team ids
+  owners: Record<string, { name: string; active: boolean; teams?: string[]; email?: string | null }>; // teams = HubSpot team ids
+  tam?: AoTam | null;
+  quarter?: { from_ms: number; to_ms: number; label: string } | null; // deal window the last sync stored
   error: string | null;
 }
 
@@ -93,14 +108,16 @@ export interface DateRange { fromMs: number | null; toMs: number | null; include
 
 export type DealerTypeFilter = "all" | "franchise" | "independent" | "none";
 
+export type IcpFilter = "all" | IcpStatus;
+
 export interface AoFilters {
   teams: string[];                 // team values; [] = all four
-  member: string | null;           // ACTIVITY owner id (team member who did the work)
-  country: string;                 // "USA" (default) | "all" | normalized country label | "Unknown"
+  country: string;                 // "all" (default) | normalized country label | "Unknown"
   state: string;                   // "all" | exact state text (case-insensitive)
   gdName: string;                  // "" = any; otherwise exact GD Name (case-insensitive)
   dealerType: DealerTypeFilter;    // Type of Dealership
-  owner: string | null;            // ACCOUNT owner id
+  owner: string | null;            // Team member = ACCOUNT owner id
+  icp: IcpFilter;                  // Company ICP
   companyDate: DateRange | null;   // on HubSpot Last Activity Date (notes_last_updated)
   q: string;                       // list search: company name / domain / record id
   activityTypes: AoActivityType[]; // [] = all

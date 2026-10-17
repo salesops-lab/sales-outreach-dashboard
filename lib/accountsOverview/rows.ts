@@ -27,7 +27,7 @@ const intOf = (v: string | null | undefined): number | null => {
 
 export function companyRow(id: string, p: Props): AoCompanyRow {
   return {
-    hs_id: id, name: str(p.name), domain: str(p.domain), country: str(p.country), state: str(p.state), city: str(p.city),
+    hs_id: id, name: str(p.name), domain: str(p.domain), country: str(p.country_dropdown) ?? str(p.country), state: str(p.state), city: str(p.city),
     owner_id: str(p.hubspot_owner_id), team: teamValueById(p.hubspot_team_id), icp: str(p.icp),
     type_of_dealership: str(p.type_of_dealership), is_group: str(p.is_this_is_a_part_of_group_dealership_),
     gd_id: str(p.gd_id), gd_name: str(p.gd_name), group_name: str(p.dealership_group_name),
@@ -81,8 +81,9 @@ export function activityRow(
 }
 
 /** Auto-Pipeline deal → row with demo dates from the EXISTING event-truth helpers. Non-Auto
- *  pipelines return null (the dashboard's demo metrics are Auto-Pipeline-only). */
-export function dealRow(id: string, p: Props, companyIds: string[]): AoDealRow | null {
+ *  pipelines return null (the dashboard's demo metrics are Auto-Pipeline-only). `team` is the
+ *  deal's team as attributed by the sync (company team, else the SDR's / owner's team). */
+export function dealRow(id: string, p: Props, companyIds: string[], team: string | null = null): AoDealRow | null {
   if (p.pipeline !== AUTO_PIPELINE_ID) return null;
   const d: Deal = {
     id, pipeline: p.pipeline, dealstage: p.dealstage ?? null, stageKey: stageKey(p.pipeline, p.dealstage),
@@ -95,5 +96,12 @@ export function dealRow(id: string, p: Props, companyIds: string[]): AoDealRow |
     hs_id: id, stage_key: d.stageKey, deal_owner_id: d.dealOwnerId, sdr_owner_id: d.sdrOwnerId,
     company_ids: [...new Set(companyIds)].sort(),
     demo_booked_ms: demoScheduledMs(d), demo_completed_ms: demoCompletedMs(d),
+    deal_name: str(p.dealname), amount: p.amount != null && p.amount !== "" && Number.isFinite(Number(p.amount)) ? Number(p.amount) : null,
+    created_ms: msOf(p.createdate), close_ms: msOf(p.closedate), team,
   };
+}
+
+/** True when the deal was created, booked or had its demo done inside [fromMs, toMs). */
+export function dealInWindow(d: AoDealRow, fromMs: number, toMs: number): boolean {
+  return [d.created_ms, d.demo_booked_ms, d.demo_completed_ms].some((ms) => ms != null && ms >= fromMs && ms < toMs);
 }

@@ -4,16 +4,18 @@
  * tables, separate state row, separate workflow — it cannot affect the existing dashboard.
  *
  * Reconciliation is built in (the "check twice" rule, at run time):
+ *   - TAM: group + franchise + independent + unknown = total; GD rows read = HubSpot's group total
  *   - per team: HubSpot Search `total` vs records pulled vs rows re-counted in Postgres afterwards
  *   - contacts: Σ HubSpot num_associated_contacts vs association rows actually read
  */
 import { supabaseAdmin } from "../supabase/admin";
-import { AO_ACTIVITY_WINDOW_DAYS, AO_TEAMS } from "../../config/accounts-overview";
+import { AO_ACTIVITY_WINDOW_DAYS, AO_TEAMS, teamValueById } from "../../config/accounts-overview";
 import {
-  ACTIVITY_OBJECTS, associations, batchRead, CONTACT_PROPS, DEAL_PROPS,
-  pullAllOwners, searchActivities, searchTeamCompanies,
+  ACTIVITY_OBJECTS, associations, batchRead, CONTACT_PROPS,
+  pullAllOwners, pullTam, searchActivities, searchQuarterDeals, searchTeamCompanies,
 } from "./pull";
-import { activityRow, companyRow, contactRow, dealRow } from "./rows";
+import { activityRow, companyRow, contactRow, dealInWindow, dealRow } from "./rows";
+import { lastQuarter } from "./ranges";
 import { AO_TABLES, loadAoState, pruneStale, saveAoState, upsertRun } from "./store";
 import { AoActivityRow, AoCompanyRow, AoDealRow, AoReconRow } from "./types";
 
@@ -39,9 +41,23 @@ export async function runAccountsOverviewSync(nowMs = Date.now()): Promise<{ ran
   try {
     const owners = await pullAllOwners();
     console.log(`[ao] owners: ${Object.keys(owners).length}`);
+    const teamOfOwner = (id: string | null) => {
+      for (const t of (id && owners[id]?.teams) || []) { const v = teamValueById(t); if (v) return v; }
+      return null;
+    };
+
+    // 0. HubSpot-wide US TAM (counts only — the overview cards; not stored as rows)
+    const recon: AoReconRow[] = [];
+    const tamFull = await pullTam();
+    const { gd_rows, ...tam } = tamFull;
+    recon.push({ check: "tam_type_split", team: null, hubspot: tam.total,
+      stored: tam.group + tam.single_franchise + tam.independent + tam.unknown, ok: tam.unknown >= 0,
+      note: "group + single franchise + single independent + unknown = total US companies" });
+    recon.push({ check: "tam_group_rows", team: null, hubspot: tam.group, stored: gd_rows, ok: tam.group === gd_rows,
+      note: "Search total of US companies with a GD Name vs GD-Name rows read (distinct GD count source)" });
+    console.log(`[ao] TAM: ${tam.total} US · group ${tam.group} (${tam.unique_gds} GDs) · SF ${tam.single_franchise} · SI ${tam.independent} · unknown ${tam.unknown}`);
 
     // 1. companies per team (pass 1 of the team reconciliation)
-    const recon: AoReconRow[] = [];
     const companies = new Map<string, AoCompanyRow>();
     for (const team of AO_TEAMS) {
       const { total, records } = await searchTeamCompanies(team.hubspotTeamId);
@@ -65,11 +81,27 @@ export async function runAccountsOverviewSync(nowMs = Date.now()): Promise<{ ran
       note: "associated contact ids vs contact records returned (gap = archived/deleted)" });
     console.log(`[ao] contacts: ${contacts.length} (${contactIds.length} associated)`);
 
-    // 3. deals (Auto Pipeline only — the dashboard's demo definitions)
-    const coDeals = invert(await associations("companies", "deals", companyIds));
-    const dealRecs = await batchRead("deals", [...coDeals.keys()], DEAL_PROPS, "deals");
-    const deals = dealRecs.map((r) => dealRow(r.id, r.properties, coDeals.get(r.id) ?? [])).filter(Boolean) as AoDealRow[];
-    console.log(`[ao] deals: ${deals.length} Auto-Pipeline of ${dealRecs.length} associated`);
+    // 3. deals — ONLY the last completed quarter (created / demo booked / demo done in it), Auto
+    // Pipeline. Searched directly (not via company associations) so deals with no company still
+    // count; team = the deal's in-scope company team, else the SDR's / deal owner's HubSpot team.
+    const quarter = lastQuarter(nowMs);
+    const qDeals = await searchQuarterDeals(quarter.fromMs, quarter.toMs);
+    const dealCos = await associations("deals", "companies", qDeals.records.map((r) => r.id));
+    const deals: AoDealRow[] = [];
+    let outOfScope = 0, otherPipeline = 0;
+    for (const r of qDeals.records) {
+      const cos = (dealCos.get(r.id) ?? []).filter((id) => companies.has(id));
+      const team = cos.length ? companies.get(cos[0])!.team
+        : teamOfOwner(r.properties.sdr_owner ?? null) ?? teamOfOwner(r.properties.hubspot_owner_id ?? null);
+      const row = dealRow(r.id, r.properties, cos, team);
+      if (!row) { otherPipeline++; continue; }
+      if (!dealInWindow(row, quarter.fromMs, quarter.toMs)) continue;
+      if (!team) { outOfScope++; continue; }
+      deals.push(row);
+    }
+    recon.push({ check: "quarter_deals", team: null, hubspot: qDeals.total, stored: qDeals.records.length, ok: qDeals.total === qDeals.records.length,
+      note: `${quarter.label}: HubSpot Search total vs deals read; ${deals.length} kept for the four teams, ${outOfScope} outside them, ${otherPipeline} other pipelines` });
+    console.log(`[ao] deals ${quarter.label}: ${qDeals.records.length} matched, ${deals.length} kept (${outOfScope} outside the teams)`);
 
     // 4. activities in the window (Search by hs_timestamp), then activity → companies / contacts.
     // Direct in-scope company associations win; only when there are none is the activity attributed
@@ -115,7 +147,8 @@ export async function runAccountsOverviewSync(nowMs = Date.now()): Promise<{ ran
 
     Object.assign(counts, { companies: companies.size, contacts: contacts.length, deals: deals.length, activities: activities.length,
       duration_s: Math.round((Date.now() - t0) / 1000) });
-    await saveAoState({ status: "ok", finished_at: new Date().toISOString(), window_start_ms: windowStart, counts, reconciliation: recon, owners, error: null });
+    await saveAoState({ status: "ok", finished_at: new Date().toISOString(), window_start_ms: windowStart, counts, reconciliation: recon, owners,
+      tam, quarter: { from_ms: quarter.fromMs, to_ms: quarter.toMs, label: quarter.label }, error: null });
     const bad = recon.filter((r) => !r.ok);
     console.log(`[ao] done in ${counts.duration_s}s — ${bad.length} reconciliation mismatch(es)`);
     for (const b of bad) console.warn(`[ao]   ✗ ${b.check}${b.team ? ` (${b.team})` : ""}: HubSpot ${b.hubspot} vs stored ${b.stored}`);

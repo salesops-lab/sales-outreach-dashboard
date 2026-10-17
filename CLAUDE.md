@@ -111,7 +111,7 @@ and the Intelligence 2.0 pure logic — signal prompt/coercion/rescan (`intel-si
 the Focus merge incl. revival-window edges (`intel-focus.test.ts`), and the Radar
 ranking incl. the zombie sink (`intel-radar.test.ts`); and the Slack Reports Call Blitz fold
 (`slack-reports.test.ts`); and the Accounts Overview classifiers + engine + params
-(`accounts-overview.test.ts`); and the Admin dashboard-access merge (`access-members.test.ts`) — 28 files / 267 tests in all. Never
+(`accounts-overview.test.ts`); and the Admin dashboard-access merge (`access-members.test.ts`) — 28 files / 270 tests in all. Never
 import a `server-only`-guarded module (`lib/supabase/admin.ts`,
 `lib/callquality/fetch.ts`, `lib/agent/openai|store|runner.ts`, `lib/slackReports/build.ts` — which
 transitively pulls in `supabaseAdmin` via `lib/spine/store.ts`/`lib/team/load.ts`) from a test — it
@@ -596,11 +596,19 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   hs_timestamp-sliced Search over the window (slices auto-split under the cap), then activity →
   company/contact associations. Don't route it
   through `sdr_companies`/`sdr_activities`, and don't route spine metrics through `sdr_ao_*`.
-- **Deliberately simple UI (user decision, 2026-10-16)**: one filter bar (Team, Team member, GD Name,
-  Type of Dealership, Country, State, Account owner, Last Activity Date, Activity type, activity date
-  range) + two tabs — **Accounts** (8 cards that drill one searchable list) and **Pipeline & Activity**
-  (demos + deals by current stage, ICP contacted vs not, per-member accounts/touchpoints). An earlier
-  8-sub-tab version was rejected as repetitive — don't re-add tabs that restate the same numbers.
+- **UI (user decision, redesigned 2026-10-17)** — NO filter applied by default; two tabs + one shared
+  filter bar (Team, Team member = account owner, GD Name, Type, Company ICP, Country, State, Last
+  Activity Date, activity date range [default all synced], activity type). **Accounts**: HubSpot-wide
+  **US TAM** cards (not filtered) → filters → team cards → member cards of the chosen team (role from
+  the roster via `rolesFromRoster`) → 8 cards drilling one list. **Deals & Activity**: worked/not
+  worked in 60d per team → member; **last completed quarter** demos/deals per team → member → deal
+  list (booked → SDR via `sdr_owner`, conducted → deal owner); account/contact utilization per member.
+  An earlier 8-sub-tab version was rejected as repetitive — don't re-add tabs that restate the same numbers.
+- **US TAM = Country Dropdown (`country_dropdown`) = "United States"** (119,645 on 2026-10-17, the
+  old TAM dashboard's number) — counted at sync time (`pullTam`: Search totals + GD-Name rows for the
+  distinct-GD count) into `sdr_ao_sync_state.tam`; never stored as rows. Free-text `country` undercounts.
+- **Deals = last completed quarter only** (`lastQuarter` in `ranges.ts`; `searchQuarterDeals` searches
+  deals directly, so company-less deals still count; team = company team, else SDR's/owner's team).
 - **Pure engine**: `compute.ts` (filters, per-account calc, tally, drill predicates) and
   `views.ts` (the two tab payloads) are I/O-free and tested; the API caches the prepared dataset until the sync-state row changes (5-min cap)
   (`cache.ts`) and computes every filter change in memory. KPI counts and drill lists share one

@@ -29,7 +29,7 @@ export const AO_DEEP_INACTIVE_DAYS = 90;
 
 /** Company properties read by the Accounts Overview sync (all verified to exist). */
 export const AO_COMPANY_PROPERTIES = [
-  "name", "domain", "country", "state", "city",
+  "name", "domain", "country", "country_dropdown", "state", "city",
   "hubspot_owner_id", "hubspot_team_id", "icp",
   "type_of_dealership", "is_this_is_a_part_of_group_dealership_",
   "gd_id", "gd_name", "dealership_group_name",
@@ -45,3 +45,10 @@ export const AO_CONTACT_PROPERTIES = [
   "firstname", "lastname", "jobtitle", "email", "phone", "mobilephone",
   "hubspot_owner_id", "icp_non_icp", "notes_last_updated", "notes_last_contacted",
 ];
+
+/**
+ * HubSpot TAM = every company whose **Country Dropdown** (`country_dropdown`) is "United States".
+ * Verified 2026-10-17: 119,645 companies — the same number the old TAM dashboard showed. The free-text
+ * `country` field is far less complete (only ~67k say us/usa/united states), so it is NOT used here.
+ */
+export const AO_TAM_COUNTRY = { property: "country_dropdown", value: "United States" } as const;

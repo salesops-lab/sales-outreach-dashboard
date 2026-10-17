@@ -40,6 +40,6 @@ export async function GET(req: NextRequest) {
       },
     });
   }
-  const payload = computeView(prep, parsed.filters, parsed.view, parsed.list, nowMs);
+  const payload = computeView(prep, parsed.filters, parsed.view, parsed.list, nowMs, parsed.deal);
   return NextResponse.json({ ...payload, warnings: parsed.warnings });
 }

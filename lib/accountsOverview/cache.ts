@@ -2,7 +2,8 @@
  *  Every request does one cheap read of the sync-state row; the full dataset is re-read only when
  *  a sync has finished since the cached copy was taken (or after a 5-min TTL). So a
  *  completed sync shows up on the next request, and every filter change is computed in memory. */
-import { prepare, Prepared } from "./compute";
+import { loadTeamStructure } from "../team/load";
+import { prepare, Prepared, rolesFromRoster } from "./compute";
 import { loadAoRows, loadAoState } from "./store";
 import { AoSyncState } from "./types";
 
@@ -19,8 +20,12 @@ export async function getPrepared(opts?: { fresh?: boolean }): Promise<Prepared>
   if (!opts?.fresh && cache && state.status === "running" && cache.prep.data.state.status !== "running") return cache.prep;
   if (inflight) return inflight;
   inflight = (async () => {
-    const [rows, fresh] = await Promise.all([loadAoRows(), loadAoState()]);
-    const prep = prepare({ ...rows, state: fresh });
+    const [rows, fresh, roles] = await Promise.all([
+      loadAoRows(), loadAoState(),
+      // Roles (Manager / SDR / AE) come from the TrackerAI roster; missing roster → no role labels.
+      loadTeamStructure().then(rolesFromRoster).catch(() => ({})),
+    ]);
+    const prep = prepare({ ...rows, state: fresh, roles });
     cache = { prep, at: Date.now(), version: versionOf(fresh) };
     return prep;
   })();

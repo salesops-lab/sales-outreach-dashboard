@@ -3,17 +3,20 @@
  * Reuses the shared hubspotFetch layer (retries 429 / 5xx / network errors, 300ms spacing).
  *
  * Shape of the pull:
+ *   0. the HubSpot-wide US TAM (Country Dropdown = United States): counts by type + distinct GDs.
  *   1. companies where HubSpot Team = <team id>, paged by an hs_object_id cursor so a team larger
  *      than the 10k Search cap (Neelima ≈ 14k) is still read completely; the first page's `total`
  *      is kept for reconciliation.
+ *   1b. last-quarter Auto-Pipeline deals (created / demo booked / demo done in the quarter).
  *   2. company → contacts / deals (v4 batch reads, per-record paging followed).
  *   3. calls / emails / meetings / notes / tasks inside the activity window, via Search sliced by
  *      hs_timestamp (slices auto-split below the 10k cap), then activity → companies / contacts.
  */
 import { hubspotGet, hubspotPost, RATE_LIMIT_DELAY_MS, delay } from "../hubspot/client";
 import { STAGE_DATE_PROPERTIES } from "../sync/stage-events";
-import { AO_COMPANY_PROPERTIES, AO_CONTACT_PROPERTIES } from "../../config/accounts-overview";
-import { AoActivityType } from "./types";
+import { AO_COMPANY_PROPERTIES, AO_CONTACT_PROPERTIES, AO_TAM_COUNTRY } from "../../config/accounts-overview";
+import { AUTO_PIPELINE_ID, AUTO_STAGE_BY_ID } from "../../config/deal-stages";
+import { AoActivityType, AoTam } from "./types";
 
 const SEARCH_CAP = 9800;
 const ASSOC_BATCH = 1000;
@@ -28,9 +31,12 @@ const chunk = <T,>(arr: T[], n: number): T[][] => {
   return out;
 };
 
-/** All companies whose HubSpot Team is `teamId`. Pages past the 10k Search cap with an
- *  hs_object_id cursor (each window restarts the search after the last id seen). */
-export async function searchTeamCompanies(teamId: string): Promise<{ total: number; records: HsRecord[] }> {
+type Filter = { propertyName: string; operator: string; value?: string; values?: string[] };
+
+/** Every record matching `groups` (OR of AND-groups). Pages past the 10k Search cap with an
+ *  hs_object_id cursor: each window restarts the search after the last id seen. The first page's
+ *  `total` is returned for reconciliation. Groups must leave room for the cursor filter. */
+export async function searchAll(object: string, groups: Filter[][], properties: string[]): Promise<{ total: number; records: HsRecord[] }> {
   const records: HsRecord[] = [];
   let total = -1;
   let lastId = "0";
@@ -40,16 +46,13 @@ export async function searchTeamCompanies(teamId: string): Promise<{ total: numb
     let more = false;
     do {
       const body: Record<string, unknown> = {
-        filterGroups: [{ filters: [
-          { propertyName: "hubspot_team_id", operator: "EQ", value: teamId },
-          { propertyName: "hs_object_id", operator: "GT", value: lastId },
-        ] }],
+        filterGroups: groups.map((g) => ({ filters: [...g, { propertyName: "hs_object_id", operator: "GT", value: lastId }] })),
         sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }],
-        properties: AO_COMPANY_PROPERTIES,
+        properties,
         limit: 100,
       };
       if (after) body.after = after;
-      const res = await hubspotPost<SearchRes>("/crm/v3/objects/companies/search", body);
+      const res = await hubspotPost<SearchRes>(`/crm/v3/objects/${object}/search`, body);
       if (total < 0) total = res.total ?? 0;
       records.push(...res.results);
       inWindow += res.results.length;
@@ -61,6 +64,55 @@ export async function searchTeamCompanies(teamId: string): Promise<{ total: numb
     lastId = records[records.length - 1].id;
   }
   return { total, records: [...new Map(records.map((r) => [r.id, r])).values()] };
+}
+
+/** Just the Search `total` for a filter set (one request, no records). */
+export async function countMatching(object: string, groups: Filter[][]): Promise<number> {
+  const res = await hubspotPost<SearchRes>(`/crm/v3/objects/${object}/search`, {
+    filterGroups: groups.map((filters) => ({ filters })), properties: ["hs_object_id"], limit: 1,
+  });
+  await delay(RATE_LIMIT_DELAY_MS);
+  return res.total ?? 0;
+}
+
+/** All companies whose HubSpot Team is `teamId`. */
+export function searchTeamCompanies(teamId: string): Promise<{ total: number; records: HsRecord[] }> {
+  return searchAll("companies", [[{ propertyName: "hubspot_team_id", operator: "EQ", value: teamId }]], AO_COMPANY_PROPERTIES);
+}
+
+/** HubSpot-wide US TAM by type, with the same GD-Name rule as the rest of the page. Counts come from
+ *  Search totals (4 requests); the distinct-GD count needs the grouped companies' GD Names (~21k rows).
+ *  Check: group + franchise + independent + unknown must equal total. */
+export async function pullTam(): Promise<AoTam & { gd_rows: number }> {
+  const us: Filter = { propertyName: AO_TAM_COUNTRY.property, operator: "EQ", value: AO_TAM_COUNTRY.value };
+  const noGd: Filter = { propertyName: "gd_name", operator: "NOT_HAS_PROPERTY" };
+  const type = (v: string): Filter => ({ propertyName: "type_of_dealership", operator: "EQ", value: v });
+  const total = await countMatching("companies", [[us]]);
+  const single_franchise = await countMatching("companies", [[us, noGd, type("Franchise")]]);
+  const independent = await countMatching("companies", [[us, noGd, type("Independent")]]);
+  const groupRows = await searchAll("companies", [[us, { propertyName: "gd_name", operator: "HAS_PROPERTY" }]], ["gd_name"]);
+  const gds = new Set(groupRows.records.map((r) => (r.properties.gd_name ?? "").trim().toLowerCase()).filter(Boolean));
+  const group = groupRows.total;
+  return {
+    total, group, single_franchise, independent, unknown: total - group - single_franchise - independent,
+    unique_gds: gds.size, checked_at: new Date().toISOString(), gd_rows: groupRows.records.length,
+  };
+}
+
+/** Auto-Pipeline deals that were created, had their demo booked, or had their demo done inside
+ *  [fromMs, toMs). Only these are stored — not the whole deal history. Callers re-check the dates. */
+export function searchQuarterDeals(fromMs: number, toMs: number): Promise<{ total: number; records: HsRecord[] }> {
+  // HubSpot allows 18 filters per search (the cursor adds one per group). Stage-entered dates are
+  // Auto-Pipeline stage ids already, so only the createdate group needs the pipeline filter.
+  const inQ = (prop: string): Filter[] => [
+    { propertyName: prop, operator: "GTE", value: String(fromMs) },
+    { propertyName: prop, operator: "LT", value: String(toMs) },
+  ];
+  const entered = (key: string) => `hs_v2_date_entered_${Object.entries(AUTO_STAGE_BY_ID).find(([, k]) => k === key)![0]}`;
+  return searchAll("deals", [
+    [{ propertyName: "pipeline", operator: "EQ", value: AUTO_PIPELINE_ID }, ...inQ("createdate")], inQ(entered("discovery_done")), inQ(entered("demo_done")),
+    inQ(entered("demo_accepted")), inQ(entered("in_discussion")),
+  ], DEAL_PROPS);
 }
 
 /** Activities of one type with hs_timestamp in [fromMs, toMs). Weekly slices, each split in half
@@ -158,14 +210,15 @@ export const CONTACT_PROPS = AO_CONTACT_PROPERTIES;
 
 export const DEAL_PROPS = [
   "pipeline", "dealstage", "hubspot_owner_id", "sdr_owner",
+  "dealname", "amount", "createdate", "closedate",
   "discovery_call_done_stage_date", "demo_done_stage_date",
   ...STAGE_DATE_PROPERTIES,
 ];
 
 /** Every owner incl. archived ones (so former reps still resolve to a name), with their HubSpot
  *  team ids — the source of each team's member list. */
-export async function pullAllOwners(): Promise<Record<string, { name: string; active: boolean; teams: string[] }>> {
-  const out: Record<string, { name: string; active: boolean; teams: string[] }> = {};
+export async function pullAllOwners(): Promise<Record<string, { name: string; active: boolean; teams: string[]; email: string | null }>> {
+  const out: Record<string, { name: string; active: boolean; teams: string[]; email: string | null }> = {};
   for (const archived of [false, true]) {
     let after: string | undefined;
     do {
@@ -174,7 +227,7 @@ export async function pullAllOwners(): Promise<Record<string, { name: string; ac
       for (const o of res.results) {
         if (out[o.id] && !archived) continue;
         const name = [o.firstName, o.lastName].filter(Boolean).join(" ").trim() || o.email || `Owner ${o.id}`;
-        out[o.id] = { name, active: !archived, teams: (o.teams ?? []).map((t) => String(t.id)) };
+        out[o.id] = { name, active: !archived, teams: (o.teams ?? []).map((t) => String(t.id)), email: o.email?.toLowerCase() ?? null };
       }
       after = res.paging?.next?.after;
       await delay(RATE_LIMIT_DELAY_MS);

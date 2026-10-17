@@ -1,33 +1,34 @@
-/** Accounts Overview — the two tab payloads over the pure engine (no I/O; unit-tested).
- *  "accounts": the 8 count cards + a paged, sortable account list (cards drill the list).
- *  "pipeline": demos + deal pipeline, ICP contacted vs not, and a per-team-member table. */
+/** Accounts Overview — tab payloads over the pure engine (no I/O; unit-tested).
+ *  "accounts": US TAM (HubSpot-wide) → teams → members of the chosen team → account list.
+ *  "activity": worked / not worked in 60 days per team + member, last-quarter demos & deals per
+ *              team + member, and account/contact utilization per member.
+ *  "deals":    the deal-detail list behind the deal tables. */
 import { AO_TEAMS } from "../../config/accounts-overview";
-import { DealStageKey, stageLabel, stageOrder } from "../../config/deal-stages";
+import { DealStageKey, stageLabel as rawStageLabel, stageOrder } from "../../config/deal-stages";
 import {
-  AccountListRow, drillMatch, filterAccounts, Prepared, rate, tally, toListRow,
+  AccountCalc, AccountListRow, drillMatch, filterAccounts, isCall, isEmail, MemberRole, Prepared, rate, tally, toListRow,
 } from "./compute";
-import { AoActivityRow, AoFilters } from "./types";
+import { AoDealRow, AoFilters } from "./types";
 
-export const AO_VIEWS = ["accounts", "pipeline"] as const;
+export const AO_VIEWS = ["accounts", "activity", "deals"] as const;
 export type AoView = (typeof AO_VIEWS)[number];
 
 export interface ListOpts { drill: string; sort: string; dir: "asc" | "desc"; page: number; pageSize: number }
+/** Deal-list selection (view=deals): whose deals and which kind. */
+export interface DealOpts { team: string; owner: string; kind: "all" | "booked" | "conducted" }
 
 export interface AoMeta {
   synced_at: string | null; sync_status: string; window_start_ms: number | null; error: string | null;
   period: { from: number; to: number };
+  quarter: { from_ms: number; to_ms: number; label: string } | null;
   options: {
-    account_owners: { id: string; name: string }[];
-    members: { team: string; owner_id: string; name: string }[];      // HubSpot team members per team
-    activity_owners: { id: string; name: string }[];                  // anyone who logged activity on these accounts
+    members: { team: string; owner_id: string; name: string; role: MemberRole | null }[]; // HubSpot team members per team
+    account_owners: { id: string; name: string }[];                                     // every account owner in the teams
     gd_names: { value: string; count: number }[];
     countries: { value: string; count: number }[];
     states: { value: string; count: number }[];
   };
 }
-
-const isCall = (a: AoActivityRow) => a.type === "call" && (a.direction ?? "").toUpperCase() === "OUTBOUND";
-const isEmail = (a: AoActivityRow) => a.type === "email" && (a.direction ?? "").toUpperCase() === "EMAIL";
 
 function sortRows<T>(rows: T[], key: string, dir: "asc" | "desc"): T[] {
   const m = dir === "asc" ? 1 : -1;
@@ -55,11 +56,11 @@ const countBy = (vals: string[]) => {
 };
 
 /** Active owners in each of the four HubSpot teams (an owner in two teams is listed under both). */
-function teamMembers(prep: Prepared): { team: string; owner_id: string; name: string }[] {
-  const out: { team: string; owner_id: string; name: string }[] = [];
+function teamMembers(prep: Prepared): { team: string; owner_id: string; name: string; role: MemberRole | null }[] {
+  const out: { team: string; owner_id: string; name: string; role: MemberRole | null }[] = [];
   for (const [id, o] of Object.entries(prep.data.state.owners ?? {})) {
     if (!o.active) continue;
-    for (const t of AO_TEAMS) if ((o.teams ?? []).includes(t.hubspotTeamId)) out.push({ team: t.value, owner_id: id, name: o.name });
+    for (const t of AO_TEAMS) if ((o.teams ?? []).includes(t.hubspotTeamId)) out.push({ team: t.value, owner_id: id, name: o.name, role: prep.roleOf(id) });
   }
   return out;
 }
@@ -69,17 +70,13 @@ function options(prep: Prepared): AoMeta["options"] {
   const hit = optCache.get(prep);
   if (hit) return hit;
   const inScope = prep.companies.filter((p) => AO_TEAMS.some((t) => t.value === p.row.team));
-  const owners = new Set<string>(); const actOwners = new Set<string>();
-  for (const p of inScope) {
-    if (p.row.owner_id) owners.add(p.row.owner_id);
-    for (const a of p.acts) if (a.owner_id) actOwners.add(a.owner_id);
-  }
+  const owners = new Set<string>();
+  for (const p of inScope) if (p.row.owner_id) owners.add(p.row.owner_id);
   const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
   const byValue = (a: { value: string }, b: { value: string }) => a.value.localeCompare(b.value);
   const out: AoMeta["options"] = {
-    account_owners: [...owners].map((id) => ({ id, name: prep.ownerName(id) })).sort(byName),
     members: teamMembers(prep).sort(byName),
-    activity_owners: [...actOwners].map((id) => ({ id, name: prep.ownerName(id) })).sort(byName),
+    account_owners: [...owners].map((id) => ({ id, name: prep.ownerName(id) })).sort(byName),
     gd_names: countBy(inScope.map((p) => p.gdName ?? "").filter(Boolean)).sort(byValue),
     countries: countBy(inScope.map((p) => p.country)).sort((a, b) => b.count - a.count),
     states: countBy(inScope.map((p) => p.row.state?.trim() ?? "").filter(Boolean)).sort(byValue),
@@ -88,105 +85,215 @@ function options(prep: Prepared): AoMeta["options"] {
   return out;
 }
 
-/** The 8 cards on the Accounts tab — each is also a drill key for the list below it. */
+/** Account-list cards (each is also a drill key for the list). */
 export const ACCOUNT_CARDS = [
-  { key: "", label: "Total accounts" },
+  { key: "", label: "All accounts" },
+  { key: "type:group", label: "Group Dealership" },
   { key: "type:single_franchise", label: "Single Franchise" },
   { key: "type:independent", label: "Single Independent" },
-  { key: "type:group", label: "Group Dealership" },
   { key: "cstatus:active", label: "Worked in last 60 days" },
-  { key: "cstatus:inactive_60plus", label: "Not touched in 60+ days" },
+  { key: "cstatus:inactive_60plus", label: "Not worked in 60+ days" },
+  { key: "cstatus:no_activity", label: "No activity recorded" },
   { key: "never_contacted", label: "Never contacted" },
-  { key: "cstatus:no_activity", label: "No recorded activity" },
 ] as const;
 
-export function computeView(prep: Prepared, f: AoFilters, view: AoView, o: ListOpts, nowMs: number) {
-  const accts = filterAccounts(prep, f, nowMs);
+const worked = (c: AccountCalc) => c.cStatus === "active";
+const notWorked = (c: AccountCalc) => c.cStatus === "inactive_60" || c.cStatus === "inactive_90";
+
+/** One row per person who owns accounts in `accts` or is a HubSpot member of `teams`
+ *  (so members with 0 accounts still show), plus "No owner" when some accounts have none. */
+function peopleOf(prep: Prepared, accts: AccountCalc[], teams: string[]) {
+  const members = teamMembers(prep).filter((m) => teams.includes(m.team));
+  const byOwner = new Map<string, AccountCalc[]>();
+  for (const c of accts) {
+    const k = c.p.row.owner_id ?? "none";
+    const l = byOwner.get(k) ?? []; l.push(c); byOwner.set(k, l);
+  }
+  const ids = new Set<string>([...members.map((m) => m.owner_id), ...byOwner.keys()]);
+  return [...ids].map((id) => {
+    const memberTeams = members.filter((m) => m.owner_id === id).map((m) => m.team);
+    return {
+      owner_id: id,
+      name: id === "none" ? "No owner" : prep.ownerName(id),
+      role: id === "none" ? null : prep.roleOf(id),
+      team: memberTeams[0] ?? prep.teamOfOwner(id === "none" ? null : id),
+      in_team: memberTeams.length > 0,
+      accts: byOwner.get(id) ?? [],
+    };
+  });
+}
+
+const stageLabel = (k: DealStageKey) => rawStageLabel(k) ?? k;
+
+const allTeams = () => AO_TEAMS.map((t) => t.value as string);
+
+export function computeView(prep: Prepared, f: AoFilters, view: AoView, o: ListOpts, nowMs: number, d?: DealOpts) {
   const state = prep.data.state;
   const meta: AoMeta = {
     synced_at: state.finished_at, sync_status: state.status, window_start_ms: state.window_start_ms, error: state.error,
     period: { from: f.activityFrom, to: f.activityTo },
+    quarter: state.quarter ?? null,
     options: options(prep),
   };
+  const accts = filterAccounts(prep, f, nowMs);
+  const scopeTeams = f.teams.length ? f.teams : allTeams();
+  // Team cards always show all four teams, and member rows all members of the chosen team(s), so a
+  // selection never hides the alternatives. Every other filter still applies.
+  const noTeam = f.teams.length ? filterAccounts(prep, { ...f, teams: [], owner: null }, nowMs) : null;
+  const noOwner = f.owner ? filterAccounts(prep, { ...f, owner: null }, nowMs) : accts;
+  const teamAccts = (team: string) => (noTeam ?? noOwner).filter((c) => c.p.row.team === team);
 
   if (view === "accounts") {
-    const t = tally(accts);
+    const teams = AO_TEAMS.map((tm) => {
+      const list = teamAccts(tm.value);
+      const x = tally(list);
+      const members = teamMembers(prep).filter((m) => m.team === tm.value);
+      return {
+        team: tm.value, label: tm.label, total: x.accounts, group: x.group, single_franchise: x.single_franchise,
+        independent: x.independent, unknown: x.unknown, unique_gds: x.unique_gds, members: members.length,
+        by_role: (["Manager", "SDR", "AE"] as const).map((r) => ({
+          role: r, accounts: list.filter((c) => prep.roleOf(c.p.row.owner_id) === r).length,
+        })),
+      };
+    });
+    const people = peopleOf(prep, noOwner, scopeTeams).map((m) => {
+      const x = tally(m.accts);
+      return {
+        owner_id: m.owner_id, name: m.name, role: m.role, team: m.team, in_team: m.in_team,
+        total: x.accounts, group: x.group, single_franchise: x.single_franchise, independent: x.independent,
+        worked_60: m.accts.filter(worked).length,
+      };
+    }).sort((a, b) => Number(b.in_team) - Number(a.in_team) || b.total - a.total);
     const cards = ACCOUNT_CARDS.map((c) => ({ ...c, count: accts.filter((a) => drillMatch(a, c.key)).length }));
     const rows = sortRows(accts.filter((c) => drillMatch(c, o.drill)).map((c) => toListRow(c, prep)), o.sort || "name", o.dir);
-    // Team-wise breakdown: all four teams side by side (every other filter still applies).
-    const allTeams = f.teams.length ? filterAccounts(prep, { ...f, teams: [] }, nowMs) : accts;
-    const teamRow = (label: string, team: string, list: typeof accts) => {
-      const x = tally(list);
-      return { team, label, total: x.accounts, single_franchise: x.single_franchise, independent: x.independent, group: x.group, unknown: x.unknown };
-    };
-    const team_table = [
-      ...AO_TEAMS.map((tm) => teamRow(tm.label, tm.value, allTeams.filter((c) => c.p.row.team === tm.value))),
-      teamRow("All four teams", "", allTeams),
-    ];
-    return { meta, team_table, cards, unique_gds: t.unique_gds, unknown_type: t.unknown, list: page<AccountListRow>(rows, o) };
+    return { meta, tam: state.tam ?? null, teams, members: people, cards, unique_gds: tally(accts).unique_gds, list: page<AccountListRow>(rows, o) };
   }
 
-  // ── pipeline ──
-  const t = tally(accts);
-  // Deals whose demo was booked in the period, by their CURRENT stage (de-duplicated by deal id).
-  const booked = new Set(accts.flatMap((c) => c.bookedDealIds));
+  if (view === "deals") return { meta, deals: dealList(prep, f, d ?? { team: "", owner: "", kind: "all" }) };
+
+  // ── activity tab ──
+  const activityRow = (list: AccountCalc[]) => ({
+    accounts: list.length, worked_60: list.filter(worked).length, not_worked_60: list.filter(notWorked).length,
+    no_activity: list.filter((c) => c.cStatus === "no_activity").length,
+    needs_review: list.filter((c) => c.cStatus === "needs_review").length,
+    pct_worked: rate(list.filter(worked).length, list.length),
+  });
+  const activity_teams = AO_TEAMS.map((tm) => ({ team: tm.value, label: tm.label, ...activityRow(teamAccts(tm.value)) }));
+  const people = peopleOf(prep, noOwner, scopeTeams);
+  const activity_members = people.map((m) => ({ owner_id: m.owner_id, name: m.name, role: m.role, team: m.team, in_team: m.in_team, ...activityRow(m.accts) }))
+    .sort((a, b) => Number(b.in_team) - Number(a.in_team) || b.accounts - a.accounts);
+
+  // Utilization — over each member's OWN accounts in the activity date range: accounts and contacts
+  // reached (called or emailed by anyone), and the member's own calls/emails per ICP account.
+  const utilization = people.filter((m) => m.owner_id !== "none").map((m) => {
+    const contacts = new Set<string>(); const reached = new Set<string>();
+    let icpOwned = 0, icpContacted = 0, icpCalls = 0, icpEmails = 0, contactedAccts = 0;
+    for (const c of m.accts) {
+      for (const ct of c.p.contacts) contacts.add(ct.hs_id);
+      c.contactsTouched.forEach((id) => reached.add(id));
+      if (c.touchpoints > 0) contactedAccts++;
+      if (c.p.icp !== "yes") continue;
+      icpOwned++;
+      if (c.touchpoints > 0) icpContacted++;
+      for (const a of c.periodActs) {
+        if (a.owner_id !== m.owner_id) continue;
+        if (isCall(a)) icpCalls++; else if (isEmail(a)) icpEmails++;
+      }
+    }
+    const reachedOwn = [...reached].filter((id) => contacts.has(id)).length;
+    return {
+      owner_id: m.owner_id, name: m.name, role: m.role, team: m.team, in_team: m.in_team,
+      accounts: m.accts.length, accounts_contacted: contactedAccts, accounts_not_contacted: m.accts.length - contactedAccts,
+      contacts: contacts.size, contacts_reached: reachedOwn, contacts_not_reached: contacts.size - reachedOwn,
+      icp_accounts: icpOwned, icp_contacted: icpContacted, icp_calls: icpCalls, icp_emails: icpEmails,
+      avg_calls_per_icp: rate(icpCalls, icpOwned), avg_emails_per_icp: rate(icpEmails, icpOwned),
+    };
+  }).sort((a, b) => Number(b.in_team) - Number(a.in_team) || b.accounts - a.accounts);
+
+  return { meta, activity_teams, activity_members, ...dealSummary(prep, f), utilization };
+}
+
+// ── deals (last completed quarter, as stored by the sync) ─────────────────────
+const inQ = (ms: number | null | undefined, q: { from_ms: number; to_ms: number } | null) =>
+  ms != null && q != null && ms >= q.from_ms && ms < q.to_ms;
+
+/** Deals that pass the Team + Team member filters (deals carry no company-level filters). */
+function scopedDeals(prep: Prepared, f: AoFilters): AoDealRow[] {
+  const teams = new Set(f.teams.length ? f.teams : allTeams());
+  return prep.data.deals.filter((d) => d.team != null && teams.has(d.team) &&
+    (!f.owner || d.sdr_owner_id === f.owner || d.deal_owner_id === f.owner));
+}
+
+function dealSummary(prep: Prepared, f: AoFilters) {
+  const q = prep.data.state.quarter ?? null;
+  const all = scopedDeals(prep, { ...f, teams: [], owner: null });
+  const scoped = scopedDeals(prep, f);
+  const counts = (list: AoDealRow[]) => ({
+    deals: list.length,
+    booked: list.filter((d) => inQ(d.demo_booked_ms, q)).length,
+    conducted: list.filter((d) => inQ(d.demo_completed_ms, q)).length,
+  });
+  const deal_teams = AO_TEAMS.map((tm) => ({ team: tm.value, label: tm.label, ...counts(all.filter((d) => d.team === tm.value)) }));
+
   const stageCount = new Map<string, number>();
-  for (const d of prep.data.deals) if (booked.has(d.hs_id)) stageCount.set(d.stage_key, (stageCount.get(d.stage_key) ?? 0) + 1);
-  const stages = [...stageCount].map(([key, count]) => ({ key, label: stageLabel(key as DealStageKey), count }))
+  for (const d of scoped) stageCount.set(d.stage_key, (stageCount.get(d.stage_key) ?? 0) + 1);
+  const deal_stages = [...stageCount].map(([key, count]) => ({ key, label: stageLabel(key as DealStageKey), count }))
     .sort((a, b) => stageOrder(a.key as DealStageKey) - stageOrder(b.key as DealStageKey));
 
-  // ICP: contacted (≥1 touch in the period) vs not, and how many got a demo.
-  const icpSplit = (["yes", "no", "unknown"] as const).map((k) => {
-    const list = accts.filter((c) => c.p.icp === k);
-    const contacted = list.filter((c) => c.touchpoints > 0).length;
+  // Per member: demos BOOKED are credited to the SDR (sdr_owner), demos CONDUCTED to the deal owner
+  // (the AE) — the same two lenses as the rest of TrackerAI, never summed.
+  const teamSet = f.teams.length ? f.teams : allTeams();
+  const ids = new Set<string>(teamMembers(prep).filter((m) => teamSet.includes(m.team)).map((m) => m.owner_id));
+  const base = scopedDeals(prep, { ...f, owner: null });
+  for (const d of base) { if (d.sdr_owner_id) ids.add(d.sdr_owner_id); if (d.deal_owner_id) ids.add(d.deal_owner_id); }
+  if (f.owner) for (const id of [...ids]) if (id !== f.owner) ids.delete(id);
+  const deal_members = [...ids].map((id) => {
+    const mine = base.filter((d) => d.sdr_owner_id === id || d.deal_owner_id === id);
     return {
-      icp: k, accounts: list.length, contacted, not_contacted: list.length - contacted,
-      demo_booked: list.filter((c) => c.demosBooked > 0).length,
-      contacted_no_demo: list.filter((c) => c.touchpoints > 0 && c.demosBooked === 0).length,
+      owner_id: id, name: prep.ownerName(id), role: prep.roleOf(id), team: prep.teamOfOwner(id),
+      in_team: prep.teamsOfOwner(id).some((t) => teamSet.includes(t)),
+      booked: base.filter((d) => d.sdr_owner_id === id && inQ(d.demo_booked_ms, q)).length,
+      conducted: base.filter((d) => d.deal_owner_id === id && inQ(d.demo_completed_ms, q)).length,
+      deals: mine.length,
     };
-  });
+  }).filter((m) => m.in_team || m.deals > 0)
+    .sort((a, b) => b.booked + b.conducted - (a.booked + a.conducted) || b.deals - a.deals);
 
-  // Per team member: accounts they OWN (in the filtered set) and the calls/emails THEY made.
-  const owned = new Map<string, number>();
-  for (const c of accts) if (c.p.row.owner_id) owned.set(c.p.row.owner_id, (owned.get(c.p.row.owner_id) ?? 0) + 1);
-  const work = new Map<string, { calls: number; emails: number; accounts: Set<string> }>();
-  for (const c of accts) for (const a of c.periodActs) {
-    if (!a.owner_id || !(isCall(a) || isEmail(a))) continue;
-    const w = work.get(a.owner_id) ?? { calls: 0, emails: 0, accounts: new Set<string>() };
-    if (isCall(a)) w.calls++; else w.emails++;
-    w.accounts.add(c.p.row.hs_id);
-    work.set(a.owner_id, w);
-  }
-  const teamSet = new Set(f.teams.length ? f.teams : AO_TEAMS.map((x) => x.value));
-  const memberIds = teamMembers(prep).filter((m) => teamSet.has(m.team)).map((m) => m.owner_id);
-  const ids = new Set<string>([...memberIds, ...work.keys()]);
-  if (f.member) for (const id of [...ids]) if (id !== f.member) ids.delete(id);
-  const members = [...ids].map((id) => {
-    const w = work.get(id);
-    const touch = (w?.calls ?? 0) + (w?.emails ?? 0);
-    const worked = w?.accounts.size ?? 0;
-    const team = prep.teamOfOwner(id);
-    return {
-      owner_id: id, name: prep.ownerName(id), team, in_team: team != null,
-      accounts_owned: owned.get(id) ?? 0, accounts_worked: worked,
-      calls: w?.calls ?? 0, emails: w?.emails ?? 0, touchpoints: touch,
-      touch_per_account: worked ? touch / worked : null,
-    };
-  }).sort((a, b) => b.touchpoints - a.touchpoints || b.accounts_owned - a.accounts_owned);
+  return { deal_totals: counts(scoped), deal_teams, deal_stages, deal_members };
+}
 
-  return {
-    meta,
-    demos: { booked: t.demos_booked, completed: t.demos_completed, accounts_with_demo: t.accounts_with_demo },
-    stages,
-    accounts: t.accounts, contacted: t.contacted,
-    demo_rate: rate(t.accounts_with_demo, t.contacted),
-    icp: icpSplit,
-    members,
-  };
+export interface DealListRow {
+  id: string; name: string; stage: string; amount: number | null; team: string | null;
+  company_id: string | null; company_name: string | null;
+  sdr: string; owner: string; created_ms: number | null; booked_ms: number | null; conducted_ms: number | null; close_ms: number | null;
+}
+
+/** The deal-detail list: deals in the Team/member scope, narrowed to one team / one person
+ *  (as SDR or deal owner) and to booked / conducted in the quarter when asked. */
+export function dealList(prep: Prepared, f: AoFilters, d: DealOpts): DealListRow[] {
+  const q = prep.data.state.quarter ?? null;
+  return scopedDeals(prep, f)
+    .filter((x) => !d.team || x.team === d.team)
+    .filter((x) => {
+      if (!d.owner) return d.kind === "all" || inQ(d.kind === "booked" ? x.demo_booked_ms : x.demo_completed_ms, q);
+      if (d.kind === "booked") return x.sdr_owner_id === d.owner && inQ(x.demo_booked_ms, q);
+      if (d.kind === "conducted") return x.deal_owner_id === d.owner && inQ(x.demo_completed_ms, q);
+      return x.sdr_owner_id === d.owner || x.deal_owner_id === d.owner;
+    })
+    .map((x) => {
+      const co = x.company_ids.map((id) => prep.byId.get(id)).find(Boolean);
+      return {
+        id: x.hs_id, name: x.deal_name?.trim() || `Deal ${x.hs_id}`, stage: stageLabel(x.stage_key as DealStageKey),
+        amount: x.amount ?? null, team: x.team ?? null,
+        company_id: co?.row.hs_id ?? null, company_name: co?.row.name ?? null,
+        sdr: prep.ownerName(x.sdr_owner_id), owner: prep.ownerName(x.deal_owner_id),
+        created_ms: x.created_ms ?? null, booked_ms: x.demo_booked_ms, conducted_ms: x.demo_completed_ms, close_ms: x.close_ms ?? null,
+      };
+    })
+    .sort((a, b) => (b.booked_ms ?? b.created_ms ?? 0) - (a.booked_ms ?? a.created_ms ?? 0));
 }
 
 /** Full (unpaged) account rows for CSV export. */
 export function exportRows(prep: Prepared, f: AoFilters, drill: string, nowMs: number): AccountListRow[] {
   return filterAccounts(prep, f, nowMs).filter((c) => drillMatch(c, drill)).map((c) => toListRow(c, prep));
 }
-

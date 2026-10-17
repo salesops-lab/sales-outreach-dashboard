@@ -47,7 +47,7 @@ footprint (repo `salesops-lab/sdr-outreach-dashboard`, salesops Vercel project, 
   - Single file: `npm test -- --run tests/temperature.test.ts`
   - By name: `npm test -- --run -t "temperature"`
   - Watch mode: `npx vitest tests/temperature.test.ts` (drop the `--run`)
-- **Test coverage:** `tests/` covers pure logic only — 28 files / 267 tests: US/Eastern bucketing with DST (+ `periodBounds`), aggregation (incl. GD grouping + deal integration + V3 event-truth demos/pipeline + range windows), activity/deal→company association (+ orphan-heal fallback), temperature classification, the canonical deal-stage engine (+ V3 active/parked/demo-completed predicates), stage-event extraction, demo-status segmentation, Deal Health, Forecast v1, integrity checks, the account-timeline builder, the calling drill-down builder, the embedding chunk composer, pod/team filters, call-quality mapping, spine row mappers, RBAC scope decision, agent detector/prompt/ranking, the auth-domain rule, the Slack Reports Call Blitz fold, the Accounts Overview classifiers/engine/params, and the Admin dashboard-access merge. Never import `server-only` modules in tests; they throw under Vitest.
+- **Test coverage:** `tests/` covers pure logic only — 28 files / 270 tests: US/Eastern bucketing with DST (+ `periodBounds`), aggregation (incl. GD grouping + deal integration + V3 event-truth demos/pipeline + range windows), activity/deal→company association (+ orphan-heal fallback), temperature classification, the canonical deal-stage engine (+ V3 active/parked/demo-completed predicates), stage-event extraction, demo-status segmentation, Deal Health, Forecast v1, integrity checks, the account-timeline builder, the calling drill-down builder, the embedding chunk composer, pod/team filters, call-quality mapping, spine row mappers, RBAC scope decision, agent detector/prompt/ranking, the auth-domain rule, the Slack Reports Call Blitz fold, the Accounts Overview classifiers/engine/params, and the Admin dashboard-access merge. Never import `server-only` modules in tests; they throw under Vitest.
 
 ## Architecture Overview
 
@@ -168,8 +168,11 @@ Shared types across modules:
 Isolated feature (own `sdr_ao_*` tables, own `npm run ao:sync` + `accounts-overview-sync.yml`, own API) — never
 reads/writes the spine tables or the snapshot. **Team = the company's HubSpot Team** (`hubspot_team_id`; four team ids in
 `config/accounts-overview.ts`; members from HubSpot team membership) — never the hand-filled `team_accounts` dropdown.
-Account owner, activity owner and contact owner stay separate everywhere. Simple UI by user decision: one HubSpot-style filter bar + two
-tabs (Accounts: 8 cards drilling one list; Pipeline & Activity) — don't re-add repetitive tabs. Type: GD Name set →
+Account owner, activity owner and contact owner stay separate everywhere. UI by user decision (2026-10-17): no filter by
+default; one shared filter bar + two tabs — Accounts (US TAM cards [Country Dropdown = United States, sync-time counts,
+not filtered] → teams → members of the chosen team → 8 cards drilling one list) and Deals & Activity (worked/not worked
+in 60d, last-completed-quarter demos/deals per team → member → deal list, contact/ICP utilization) — don't re-add
+repetitive tabs. Only last-quarter deals are stored (`lastQuarter`, `searchQuarterDeals`). Type: GD Name set →
 Group, else Type of Dealership (Franchise / Independent). Touchpoints = calls + emails. Pure, tested engine in
 `compute.ts`/`views.ts`; card counts and drill lists share `drillMatch`. Last Activity Date = `notes_last_updated`;
 missing ≠ 0 days ≠ never contacted. Full metric→source map: `docs/accounts-overview.md`.
@@ -281,7 +284,7 @@ The hot-account agent runs every 2 hours (GitHub Actions), reads-only on HubSpot
   - `lib/auth/` — auth domain rule
   - `lib/supabase/` — Supabase client (admin = server-only)
 - `config/` — dispositions, HubSpot portal, canonical deal stages (`deal-stages.ts`); `reps`/`team-structure` are the roster seed/fallback (the DB is authoritative); `slack-reports.ts` is the Slack Reports config (code, not a DB table)
-- `tests/` — Vitest, 28 files / 267 tests, pure logic only (full inventory in CLAUDE.md's Commands section)
+- `tests/` — Vitest, 28 files / 270 tests, pure logic only (full inventory in CLAUDE.md's Commands section)
 - `scripts/` — CLI scripts (sync, agent, verify-schema)
 - `supabase/` — SQL schema + RLS floor
 

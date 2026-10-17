@@ -31,6 +31,28 @@ export interface AoData {
   activities: AoActivityRow[];
   deals: AoDealRow[];
   state: AoSyncState;
+  /** owner id → role label from the TrackerAI roster (Manager / SDR / AE). Optional. */
+  roles?: Record<string, MemberRole>;
+}
+
+export type MemberRole = "Manager" | "SDR" | "AE";
+
+/** Role per HubSpot owner from the TrackerAI roster: AE-pod leads and SDR managers/TLs are
+ *  "Manager", other roster members their SDR/AE type. Owners not in the roster get no role. */
+export function rolesFromRoster(ts: {
+  pods: { leadEmail: string | null }[];
+  managers: Record<string, { ownerId: string | null }>;
+  members: { ownerId: string; email: string | null; kind: string; active: boolean }[];
+}): Record<string, MemberRole> {
+  const out: Record<string, MemberRole> = {};
+  const leads = new Set(ts.pods.map((p) => (p.leadEmail ?? "").toLowerCase()).filter(Boolean));
+  const mgrIds = new Set(Object.values(ts.managers).map((m) => m.ownerId).filter(Boolean) as string[]);
+  for (const m of ts.members) {
+    if (mgrIds.has(m.ownerId) || (m.email && leads.has(m.email.toLowerCase()))) out[m.ownerId] = "Manager";
+    else if (m.kind === "sdr" || m.kind === "ae") out[m.ownerId] = m.kind === "sdr" ? "SDR" : "AE";
+  }
+  for (const id of mgrIds) out[id] = "Manager";
+  return out;
 }
 
 interface PCompany {
@@ -55,6 +77,9 @@ export interface Prepared {
   ownerName: (id: string | null | undefined) => string;
   /** The owner's team among the four (from HubSpot team membership), or null. */
   teamOfOwner: (id: string | null | undefined) => string | null;
+  /** All of the owner's teams among the four (an owner can sit in more than one). */
+  teamsOfOwner: (id: string | null | undefined) => string[];
+  roleOf: (id: string | null | undefined) => MemberRole | null;
 }
 
 const isCall = (a: AoActivityRow) => a.type === "call" && (a.direction ?? "").toUpperCase() === "OUTBOUND";
@@ -92,11 +117,12 @@ export function prepare(data: AoData): Prepared {
   });
   const owners = data.state.owners ?? {};
   const ownerName = (id: string | null | undefined) => (id ? owners[id]?.name || `Owner ${id}` : "—");
-  const teamOfOwner = (id: string | null | undefined) => {
-    for (const t of (id && owners[id]?.teams) || []) { const v = teamValueById(t); if (v) return v; }
-    return null;
-  };
-  return { data, companies, byId: new Map(companies.map((c) => [c.row.hs_id, c])), contactById, ownerName, teamOfOwner };
+  const teamsOfOwner = (id: string | null | undefined) =>
+    [...new Set(((id && owners[id]?.teams) || []).map(teamValueById).filter(Boolean) as string[])];
+  const teamOfOwner = (id: string | null | undefined) => teamsOfOwner(id)[0] ?? null;
+  const roles = data.roles ?? {};
+  const roleOf = (id: string | null | undefined) => (id ? roles[id] ?? null : null);
+  return { data, companies, byId: new Map(companies.map((c) => [c.row.hs_id, c])), contactById, ownerName, teamOfOwner, teamsOfOwner, roleOf };
 }
 
 // ── per-account calc for the reporting period ────────────────────────────────
@@ -108,7 +134,7 @@ export interface AccountCalc {
   rDays: number | null;
   neverContacted: boolean;       // verified: HubSpot Last Contacted empty AND no touch in the synced window
   contactedConflict: boolean;    // HubSpot Last Contacted empty BUT a touch exists in the synced window
-  periodActs: AoActivityRow[];   // activities in period after type/member filters
+  periodActs: AoActivityRow[];   // activities in the activity date range after the type filter
   calls: number; connected: number; emails: number; meetings: number; notes: number; tasks: number;
   meetingsCompleted: number; meetingsCanceled: number; meetingsNoShow: number; meetingsRescheduled: number; meetingsNoOutcome: number;
   meetingDispositionCalls: number;
@@ -133,7 +159,7 @@ export function calcAccount(prep: Prepared, p: PCompany, f: AoFilters, nowMs: nu
   const typeSet = f.activityTypes.length ? new Set(f.activityTypes) : null;
   const periodActs = p.acts.filter((a) =>
     a.ts_ms >= f.activityFrom && a.ts_ms < f.activityTo &&
-    (!typeSet || typeSet.has(a.type)) && (!f.member || a.owner_id === f.member));
+    (!typeSet || typeSet.has(a.type)));
   const c: AccountCalc = {
     p,
     cStatus: companyStatus(p.row, nowMs, AO_INACTIVE_DAYS, AO_DEEP_INACTIVE_DAYS),
@@ -178,8 +204,8 @@ export function calcAccount(prep: Prepared, p: PCompany, f: AoFilters, nowMs: nu
     if (c.lastEmailMs == null && isEmail(a)) c.lastEmailMs = a.ts_ms;
     if (c.lastMeetingMs == null && isMeeting(a)) c.lastMeetingMs = a.ts_ms;
   }
-  // Demos are deal events, not activities — the member filter does not apply; the type filter
-  // only hides them when the user filtered to specific activity types.
+  // Demos are deal events, not activities — the type filter only hides them when the user
+  // filtered to specific activity types.
   const demosVisible = !typeSet;
   for (const d of p.deals) {
     if (d.demo_booked_ms != null && (c.lastDemoMs == null || d.demo_booked_ms > c.lastDemoMs)) c.lastDemoMs = d.demo_booked_ms;
@@ -209,13 +235,11 @@ export function filterAccounts(prep: Prepared, f: AoFilters, nowMs: number): Acc
       const t = (r.type_of_dealership ?? "").trim().toLowerCase();
       if (f.dealerType === "none" ? t !== "" : t !== f.dealerType) continue;
     }
-    if (f.owner && r.owner_id !== f.owner) continue;
+    if (f.owner && (f.owner === "none" ? r.owner_id != null : r.owner_id !== f.owner)) continue;
+    if (f.icp !== "all" && p.icp !== f.icp) continue;
     if (q && !((r.name ?? "").toLowerCase().includes(q) || (r.domain ?? "").toLowerCase().includes(q) || r.hs_id === q)) continue;
     if (!inRange(r.last_activity_ms, f.companyDate)) continue;
-    const calc = calcAccount(prep, p, f, nowMs);
-    // The team-member (activity owner) filter narrows to accounts that member worked in the period.
-    if (f.member && calc.periodActs.length === 0) continue;
-    out.push(calc);
+    out.push(calcAccount(prep, p, f, nowMs));
   }
   return out;
 }
@@ -335,6 +359,8 @@ export function tally(accts: AccountCalc[]): Tally {
 }
 
 export const rate = (num: number, den: number): number | null => (den > 0 ? num / den : null);
+
+export { isCall, isEmail, isTouch };
 
 // ── list rows ────────────────────────────────────────────────────────────────
 export interface AccountListRow {

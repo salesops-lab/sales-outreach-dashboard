@@ -22,3 +22,21 @@ export function resolveRange(preset: string, from: string | null, to: string | n
   }
   return { fromMs: null, toMs: null };
 }
+
+/** The last COMPLETED calendar quarter in US/Eastern — the deal-tracking window (on 2026-10-17
+ *  that is Q3 2026: Jul 1 – Sep 30). [fromMs, toMs) + a label like "Q3 2026 (Jul–Sep)". */
+export function lastQuarter(nowMs: number): { fromMs: number; toMs: number; label: string } {
+  const [y, m] = etDateStr(nowMs).split("-").map(Number);
+  const curQ = Math.floor((m - 1) / 3);              // 0..3
+  const q = curQ === 0 ? 3 : curQ - 1;
+  const year = curQ === 0 ? y - 1 : y;
+  const iso = (yy: number, mm: number) => `${yy}-${String(mm).padStart(2, "0")}-01`;
+  const startM = q * 3 + 1;
+  const endY = q === 3 ? year + 1 : year;
+  const endM = q === 3 ? 1 : startM + 3;
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return {
+    fromMs: etDayStartMs(iso(year, startM)), toMs: etDayStartMs(iso(endY, endM)),
+    label: `Q${q + 1} ${year} (${MON[startM - 1]}–${MON[startM + 1]})`,
+  };
+}

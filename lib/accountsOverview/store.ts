@@ -67,12 +67,16 @@ async function fetchAll<T>(table: string, select: string): Promise<T[]> {
 const num = (v: unknown) => (v == null ? null : Number(v));
 const arr = (v: unknown) => (Array.isArray(v) ? v.map(String) : []);
 
+const DEAL_BASE = "hs_id,stage_key,deal_owner_id,sdr_owner_id,company_ids,demo_booked_ms,demo_completed_ms";
+
 export async function loadAoRows() {
   const [companies, contacts, activities, deals] = await Promise.all([
     fetchAll<AoCompanyRow>(AO_TABLES.companies, "hs_id,name,domain,country,state,city,owner_id,team,icp,type_of_dealership,is_group,gd_id,gd_name,group_name,last_activity_ms,last_contacted_ms,rooftop_last_activity_ms,num_contacts,hs_lastmodified_ms"),
     fetchAll<AoContactRow>(AO_TABLES.contacts, "hs_id,first_name,last_name,title,email,phone,owner_id,icp,last_activity_ms,last_contacted_ms,company_ids"),
     fetchAll<AoActivityRow>(AO_TABLES.activities, "hs_id,type,ts_ms,owner_id,direction,disposition,duration_ms,email_replied,meeting_outcome,meeting_start_ms,subject,company_ids,contact_ids,via_contact_only"),
-    fetchAll<AoDealRow>(AO_TABLES.deals, "hs_id,stage_key,deal_owner_id,sdr_owner_id,company_ids,demo_booked_ms,demo_completed_ms"),
+    // Deal-detail columns arrived 2026-10-17 — fall back to the old shape until the SQL is applied.
+    fetchAll<AoDealRow>(AO_TABLES.deals, `${DEAL_BASE},deal_name,amount,created_ms,close_ms,team`)
+      .catch(() => fetchAll<AoDealRow>(AO_TABLES.deals, DEAL_BASE)),
   ]);
   // bigint columns arrive as strings from PostgREST — normalize.
   return {
@@ -81,7 +85,8 @@ export async function loadAoRows() {
     contacts: contacts.map((r) => ({ ...r, last_activity_ms: num(r.last_activity_ms), last_contacted_ms: num(r.last_contacted_ms), company_ids: arr(r.company_ids) })),
     activities: activities.map((r) => ({ ...r, ts_ms: Number(r.ts_ms), duration_ms: num(r.duration_ms), meeting_start_ms: num(r.meeting_start_ms),
       company_ids: arr(r.company_ids), contact_ids: arr(r.contact_ids) })),
-    deals: deals.map((r) => ({ ...r, demo_booked_ms: num(r.demo_booked_ms), demo_completed_ms: num(r.demo_completed_ms), company_ids: arr(r.company_ids) })),
+    deals: deals.map((r) => ({ ...r, demo_booked_ms: num(r.demo_booked_ms), demo_completed_ms: num(r.demo_completed_ms), company_ids: arr(r.company_ids),
+      amount: num(r.amount), created_ms: num(r.created_ms), close_ms: num(r.close_ms) })),
   };
 }
 
