@@ -9,7 +9,10 @@
  * Filters live in the URL so every view is shareable.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, ExternalLink, Loader2, RotateCcw, Search, X } from "lucide-react";
+import {
+  Activity, Building2, CalendarCheck, ChevronLeft, ChevronRight, Download, ExternalLink, Globe2, Loader2, RotateCcw, Search,
+  SlidersHorizontal, Target, UserRound, Users, X, type LucideIcon,
+} from "lucide-react";
 import AppNav from "../AppNav";
 import { Viewer } from "../../lib/spine/types";
 import { companyUrl, dealUrl } from "../../config/hubspot";
@@ -18,6 +21,7 @@ import { Card, etDay, etTime, fmt, Note, pct, StatusChip, TH, TYPE_LABEL } from 
 import AccountDetail from "./AccountDetail";
 import GroupDetail from "./GroupDetail";
 import { ALL_COLUMNS, ManageColumns, useColumns } from "./columns";
+import { CARD_TONE, LOOK, TONE, Tone, teamTone } from "./tones";
 
 const TEAMS = [
   { value: "Neelima", label: "Neelima Team" },
@@ -210,36 +214,40 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
   );
 
   return (
-    <div className="min-h-screen bg-canvas">
+    <div className="relative isolate min-h-screen bg-canvas">
+      {LOOK !== "subtle" && <div className={cn("ao-bg", LOOK === "balanced" && "ao-bg-soft")} aria-hidden><span /><span /><span /></div>}
       <AppNav active="accounts-overview" viewer={viewer} />
-      <main className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6">
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <main className="mx-auto max-w-[1500px] px-4 py-4 sm:px-6">
+        <div className={cn("mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3",
+          LOOK === "vivid" ? "ao-hero text-white shadow-lg" : LOOK === "balanced" ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md" : "ao-plain-hero border border-line bg-surface text-ink shadow-card")}>
           <div>
-            <h1 className="text-xl font-extrabold tracking-tight text-ink">Accounts Overview</h1>
-            <p className="text-xs text-ink-muted">HubSpot accounts, teams and members — Neelima · Prince · Saarthak · Central</p>
+            <h1 className="text-lg font-extrabold tracking-tight">Accounts Overview</h1>
+            <p className="text-[11px] text-white/80">HubSpot accounts, teams and members — Neelima · Prince · Saarthak · Central</p>
           </div>
           <div className="flex items-center gap-2 text-xs">
             {meta && (
-              <span className={cn("rounded-full px-2.5 py-1 font-medium", meta.sync_status === "ok" ? "bg-good-weak text-good" : "bg-warn-weak text-warn")}>
+              <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium", meta.sync_status === "ok" ? "bg-white/20" : "bg-amber-300 text-amber-950")}>
+                <span className={cn("h-1.5 w-1.5 rounded-full", meta.sync_status === "ok" ? "bg-emerald-300" : "bg-amber-700")} />
                 {meta.sync_status === "error" ? "Last sync failed · " : meta.sync_status === "running" ? "Sync running · " : ""}
                 Updated {meta.synced_at ? etTime(Date.parse(meta.synced_at)) : "never"}
               </span>
             )}
             <button onClick={() => { setF(DEFAULTS); setCard(""); setQ(""); setPageNo(1); setDealSel(null); }}
-              className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-ink-muted hover:bg-surface-muted">
+              className="inline-flex items-center gap-1 rounded-lg bg-white/15 px-2.5 py-1.5 font-medium hover:bg-white/25">
               <RotateCcw className="h-3.5 w-3.5" /> Reset filters
             </button>
           </div>
         </div>
 
-        <div className="mb-4 flex items-center gap-1 rounded-xl border border-line bg-surface p-1 shadow-card">
-          {([["accounts", "Accounts"], ["activity", "Deals & Activity"]] as const).map(([k, l]) => (
+        <div className="mb-3 flex items-center gap-1 rounded-xl border border-line bg-surface/80 p-1 shadow-card backdrop-blur">
+          {([["accounts", "Accounts", Building2], ["activity", "Deals & Activity", Activity]] as const).map(([k, l, Icon]) => (
             <button key={k} onClick={() => setTab(k)}
-              className={cn("rounded-lg px-4 py-1.5 text-sm font-medium transition", tab === k ? "bg-primary text-primary-fg shadow-sm" : "text-ink-muted hover:bg-surface-muted hover:text-ink")}>
-              {l}
+              className={cn("inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-semibold transition",
+                tab === k ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md" : "text-ink-muted hover:bg-surface-muted hover:text-ink")}>
+              <Icon className="h-4 w-4" />{l}
             </button>
           ))}
-          {loading && <Loader2 className="ml-auto mr-2 h-4 w-4 animate-spin text-ink-subtle" />}
+          {loading && <Loader2 className="ml-auto mr-2 h-4 w-4 animate-spin text-indigo-500" />}
         </div>
 
         {error && <div className="mb-4 rounded-card border border-warn/30 bg-warn-weak p-4 text-sm text-warn">{error}</div>}
@@ -269,8 +277,8 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
 // ── shared filter bar ────────────────────────────────────────────────────────
 function FilterBar({ f, set, opts, memberOptions }: { f: UiFilters; set: (p: Partial<UiFilters>) => void; opts: any; memberOptions: { members: any[]; others: any[] } }) {
   return (
-    <div className="space-y-3 rounded-card border border-line bg-surface p-3 shadow-card">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+    <div className="space-y-2 rounded-card border border-indigo-500/20 bg-surface/90 p-2.5 shadow-[0_6px_20px_-10px_rgba(79,70,229,0.25)] backdrop-blur">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5">
         <Field label="Team">
           <select className={sel} value={f.team} onChange={(e) => set({ team: e.target.value })}>
             <option value="">All teams</option>
@@ -335,7 +343,7 @@ function FilterBar({ f, set, opts, memberOptions }: { f: UiFilters; set: (p: Par
           const on = f.atypes.includes(v);
           return (
             <button key={v} onClick={() => set({ atypes: on ? f.atypes.filter((x) => x !== v) : [...f.atypes, v] })}
-              className={cn("rounded-full px-3 py-1 text-[11px] font-semibold", on ? "bg-primary text-primary-fg" : "bg-surface-muted text-ink-muted hover:text-ink")}>
+              className={cn("rounded-full px-3 py-0.5 text-[11px] font-semibold", on ? "bg-gradient-to-r from-indigo-500 to-violet-500 text-white" : "bg-surface-muted text-ink-muted hover:text-ink")}>
               {l}
             </button>
           );
@@ -346,25 +354,33 @@ function FilterBar({ f, set, opts, memberOptions }: { f: UiFilters; set: (p: Par
   );
 }
 
-function SectionTitle({ children, sub }: { children: React.ReactNode; sub?: React.ReactNode }) {
+function SectionTitle({ children, sub, icon: Icon, tone = "indigo" }: { children: React.ReactNode; sub?: React.ReactNode; icon?: LucideIcon; tone?: Tone }) {
   return (
-    <div className="mb-2 mt-6 flex flex-wrap items-baseline justify-between gap-2">
-      <h2 className="text-sm font-bold text-ink">{children}</h2>
+    <div className="mb-2 mt-4 flex flex-wrap items-center justify-between gap-2">
+      <h2 className="flex items-center gap-2 text-sm font-bold text-ink">
+        {Icon && <span className={cn("grid h-6 w-6 place-items-center rounded-lg", TONE[tone].soft)}><Icon className="h-3.5 w-3.5" /></span>}
+        {children}
+      </h2>
       {sub && <span className="text-[11px] text-ink-subtle">{sub}</span>}
     </div>
   );
 }
 
-function Stat({ label, value, sub, active, onClick }: { label: string; value: string; sub?: string; active?: boolean; onClick?: () => void }) {
+function Stat({ label, value, sub, active, onClick, tone = "indigo" }: { label: string; value: string; sub?: string; active?: boolean; onClick?: () => void; tone?: Tone }) {
   const Tag = onClick ? "button" : "div";
+  const t = TONE[tone];
   return (
-    <Tag onClick={onClick} className={cn("rounded-card border bg-surface p-3 text-left shadow-card", onClick && "transition hover:border-primary/40",
-      active ? "border-primary ring-2 ring-primary/20" : "border-line")}>
-      <div className="text-[11px] font-semibold text-ink-muted">{label}</div>
-      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-ink">{value}</div>
-      {sub && <div className="mt-0.5 text-[11px] text-ink-subtle">{sub}</div>}
+    <Tag onClick={onClick} className={cn("relative overflow-hidden rounded-card border px-3 py-2.5 text-left", t.card, t.lift, active && t.ring)}>
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-muted"><span className={cn("h-2 w-2 rounded-full", t.dot)} />{label}</div>
+      <div className={cn("mt-0.5 font-mono text-xl font-bold tabular-nums", t.text)}>{value}</div>
+      {sub && <div className="mt-0.5 text-[10px] leading-snug text-ink-subtle">{sub}</div>}
     </Tag>
   );
+}
+
+function Avatar({ name, tone }: { name: string; tone: Tone }) {
+  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "?";
+  return <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold", TONE[tone].soft)}>{initials}</span>;
 }
 
 // ── Accounts tab ─────────────────────────────────────────────────────────────
@@ -383,58 +399,65 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
   return (
     <div>
       {/* 1. HubSpot TAM — every US company, never filtered */}
-      <SectionTitle sub="All HubSpot companies with Country = United States · not affected by the filters">HubSpot US accounts (TAM)</SectionTitle>
+      <SectionTitle icon={Globe2} tone="indigo" sub="All HubSpot companies with Country = United States · not affected by the filters">HubSpot US accounts (TAM)</SectionTitle>
       {tam ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Stat label="Total US accounts" value={fmt(tam.total)} sub="Groups + single rooftops" />
-          <Stat label="Single Independent" value={fmt(tam.independent)} sub={`GD Name empty · Independent · ${share(tam.independent)}`} />
-          <Stat label="Single Franchise" value={fmt(tam.single_franchise)} sub={`GD Name empty · Franchise · ${share(tam.single_franchise)}`} />
-          <Stat label="Group Dealership" value={fmt(tam.group)} sub={`GD Name set · ${fmt(tam.unique_gds)} dealership groups`} />
+        <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+          <Stat tone="indigo" label="Total US accounts" value={fmt(tam.total)} sub="Groups + single rooftops" />
+          <Stat tone="amber" label="Single Independent" value={fmt(tam.independent)} sub={`GD Name empty · Independent · ${share(tam.independent)}`} />
+          <Stat tone="emerald" label="Single Franchise" value={fmt(tam.single_franchise)} sub={`GD Name empty · Franchise · ${share(tam.single_franchise)}`} />
+          <Stat tone="violet" label="Group Dealership" value={fmt(tam.group)} sub={`GD Name set · ${fmt(tam.unique_gds)} dealership groups`} />
         </div>
       ) : <Note>The US totals appear after the next Accounts Overview sync.</Note>}
       {tam?.unknown > 0 && <p className="mt-1 text-[11px] text-ink-subtle">{fmt(tam.unknown)} US accounts have no GD Name and no Type of Dealership.</p>}
 
       {/* 2. Filters — everything below follows them */}
-      <SectionTitle sub="Everything below follows these filters">Filters</SectionTitle>
+      <SectionTitle icon={SlidersHorizontal} tone="slate" sub="Everything below follows these filters">Filters</SectionTitle>
       {filterBar}
 
       {/* 3. Teams */}
-      <SectionTitle sub="Click a team to see its members">Teams</SectionTitle>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {data.teams.map((t: any) => (
+      <SectionTitle icon={Users} tone="violet" sub="Click a team to see its members">Teams</SectionTitle>
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+        {data.teams.map((t: any) => {
+          const tt = TONE[teamTone(t.team)];
+          return (
           <button key={t.team} onClick={() => onTeam(t.team)}
-            className={cn("rounded-card border bg-surface p-3 text-left shadow-card transition hover:border-primary/40",
-              f.team === t.team ? "border-primary ring-2 ring-primary/20" : "border-line")}>
+            className={cn("rounded-card border px-3 py-2.5 text-left", tt.card, tt.lift, f.team === t.team && tt.ring)}>
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-ink-muted">{t.label}</span>
-              <span className="text-[11px] text-ink-subtle">{t.members} member{t.members === 1 ? "" : "s"}</span>
+              <span className="flex items-center gap-1.5 text-xs font-bold text-ink"><span className={cn("h-2.5 w-2.5 rounded-full", tt.dot)} />{t.label}</span>
+              <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", tt.soft)}>{t.members} member{t.members === 1 ? "" : "s"}</span>
             </div>
-            <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-ink">{fmt(t.total)}</div>
-            <div className="mt-2 grid grid-cols-3 gap-1 text-[11px]">
+            <div className={cn("mt-1 font-mono text-2xl font-bold tabular-nums", tt.text)}>{fmt(t.total)}</div>
+            <div className="mt-1.5 grid grid-cols-3 gap-1 text-[11px]">
               <div><div className="text-ink-subtle">Group</div><div className="font-mono font-semibold">{fmt(t.group)}</div></div>
               <div><div className="text-ink-subtle">Single Fr.</div><div className="font-mono font-semibold">{fmt(t.single_franchise)}</div></div>
               <div><div className="text-ink-subtle">Single Ind.</div><div className="font-mono font-semibold">{fmt(t.independent)}</div></div>
             </div>
-            <div className="mt-2 border-t border-line pt-1.5 text-[10px] text-ink-subtle">
+            <div className="mt-1.5 border-t border-line pt-1 text-[10px] text-ink-subtle">
               Accounts by owner role: {t.by_role.map((r: any) => `${r.role} ${fmt(r.accounts)}`).join(" · ")}
             </div>
           </button>
-        ))}
+          );
+        })}
       </div>
 
       {/* 4. Members of the chosen team */}
-      <SectionTitle sub={f.team ? "Click a member to list their accounts below" : "Pick a team above to see only its members"}>
+      <SectionTitle icon={UserRound} tone={f.team ? teamTone(f.team) : "sky"} sub={f.team ? "Click a member to list their accounts below" : "Pick a team above to see only its members"}>
         Team members — {teamLabel ?? "all teams"}
       </SectionTitle>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
         {data.members.map((m: any) => (
           <button key={m.owner_id} onClick={() => onOwner(m.owner_id)}
-            className={cn("rounded-card border bg-surface p-2.5 text-left shadow-card transition hover:border-primary/40",
-              f.owner === m.owner_id ? "border-primary ring-2 ring-primary/20" : "border-line", !m.in_team && "opacity-80")}>
-            <div className="truncate text-xs font-semibold text-ink" title={m.name}>{m.name}</div>
-            <div className="mt-1 flex items-center gap-1"><RoleChip role={m.role} />
-              <span className="truncate text-[10px] text-ink-subtle">{m.in_team ? `${m.team} Team` : m.owner_id === "none" ? "" : m.team ? `${m.team} Team member` : "not in a team"}</span></div>
-            <div className="mt-1.5 font-mono text-lg font-bold tabular-nums text-ink">{fmt(m.total)}</div>
+            className={cn("rounded-card border border-line bg-surface p-2 text-left", TONE[teamTone(m.team)].lift,
+              f.owner === m.owner_id && TONE[teamTone(m.team)].ring, !m.in_team && "opacity-80")}>
+            <div className="flex items-center gap-2">
+              <Avatar name={m.name} tone={teamTone(m.team)} />
+              <div className="min-w-0">
+                <div className="truncate text-xs font-semibold text-ink" title={m.name}>{m.name}</div>
+                <div className="flex items-center gap-1"><RoleChip role={m.role} />
+                  <span className="truncate text-[10px] text-ink-subtle">{m.in_team ? `${m.team} Team` : m.owner_id === "none" ? "" : m.team ? `${m.team} Team member` : "not in a team"}</span></div>
+              </div>
+            </div>
+            <div className={cn("mt-1 font-mono text-lg font-bold tabular-nums", TONE[teamTone(m.team)].text)}>{fmt(m.total)}</div>
             <div className="text-[10px] text-ink-subtle">accounts · G {fmt(m.group)} · SF {fmt(m.single_franchise)} · SI {fmt(m.independent)}</div>
           </button>
         ))}
@@ -442,14 +465,14 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
       </div>
 
       {/* 5. Accounts */}
-      <SectionTitle sub="Click a card to narrow the list">Accounts</SectionTitle>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <SectionTitle icon={Building2} tone="indigo" sub="Click a card to narrow the list">Accounts</SectionTitle>
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
         {data.cards.map((c: any) => (
-          <Stat key={c.key} label={c.label} value={fmt(c.count)} active={card === c.key} onClick={() => onCard(c.key)}
+          <Stat key={c.key} tone={CARD_TONE[c.key] ?? "indigo"} label={c.label} value={fmt(c.count)} active={card === c.key} onClick={() => onCard(c.key)}
             sub={c.key === "type:group" ? `${fmt(data.unique_gds)} groups` : undefined} />
         ))}
       </div>
-      <div className="mt-3">
+      <div className="mt-2.5">
         <Card title={`${data.cards.find((c: any) => c.key === card)?.label ?? DRILL_LABEL[card] ?? "Accounts"}${f.owner ? ` · ${data.members.find((m: any) => m.owner_id === f.owner)?.name ?? ""}` : ""} — ${fmt(list.total)}`}
           right={
             <div className="flex items-center gap-2">
@@ -459,20 +482,20 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
                   className="w-64 rounded-lg border border-line bg-surface py-1.5 pl-7 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
               <ManageColumns cols={colKeys} onChange={setColKeys} />
-              <a href={csvHref} className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-fg"><Download className="h-3.5 w-3.5" />CSV</a>
+              <a href={csvHref} className="inline-flex items-center gap-1 rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 px-2.5 py-1.5 text-xs font-medium text-white shadow-sm"><Download className="h-3.5 w-3.5" />CSV</a>
             </div>
           }>
           <div className="max-h-[70vh] overflow-auto rounded-lg border border-line">
             <table className="w-full text-xs">
-              <thead className="sticky top-0 z-10 bg-surface-muted">
+              <thead className="sticky top-0 z-10 bg-gradient-to-r from-indigo-500/15 via-violet-500/10 to-sky-500/10 backdrop-blur [&_th]:text-ink">
                 <tr>{cols.map((c) => (
                   <SortHeader key={c.key} active={sort === c.key} dir={dir} onClick={() => onSort(c.key)} right={c.right}><span className="whitespace-nowrap text-[10px] uppercase tracking-wide">{c.label}</span></SortHeader>
                 ))}</tr>
               </thead>
               <tbody>
                 {list.rows.map((r: any) => (
-                  <tr key={r.id} className="border-t border-line hover:bg-surface-muted/40">
-                    {cols.map((c) => <td key={c.key} className={cn("whitespace-nowrap px-3 py-1.5", c.right && "text-right")}>{c.cell(r, ctx)}</td>)}
+                  <tr key={r.id} className="border-t border-line odd:bg-surface even:bg-surface-muted/40 hover:bg-indigo-500/[0.06]">
+                    {cols.map((c) => <td key={c.key} className={cn("whitespace-nowrap px-2.5 py-1", c.right && "text-right")}>{c.cell(r, ctx)}</td>)}
                   </tr>
                 ))}
                 {list.rows.length === 0 && <tr><td colSpan={cols.length} className="px-3 py-8 text-center text-ink-subtle">No accounts match.</td></tr>}
@@ -499,15 +522,41 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
 function TeamChips({ team, onTeam }: { team: string; onTeam: (t: string) => void }) {
   return (
     <div className="flex flex-wrap gap-1.5">
-      {[{ value: "", label: "All teams" }, ...TEAMS].map((t) => (
-        <button key={t.value} onClick={() => onTeam(t.value)}
-          className={cn("rounded-full px-3 py-1 text-xs font-semibold", team === t.value ? "bg-primary text-primary-fg" : "bg-surface text-ink-muted ring-1 ring-line hover:text-ink")}>
-          {t.label}
-        </button>
-      ))}
+      {[{ value: "", label: "All teams" }, ...TEAMS].map((t) => {
+        const tt = TONE[t.value ? teamTone(t.value) : "indigo"];
+        const on = team === t.value;
+        return (
+          <button key={t.value} onClick={() => onTeam(t.value)}
+            className={cn("inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition",
+              on ? cn("bg-gradient-to-r text-white shadow-sm", tt.bar) : "bg-surface/90 text-ink-muted ring-1 ring-line hover:text-ink")}>
+            <span className={cn("h-2 w-2 rounded-full", on ? "bg-white" : tt.dot)} />{t.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
+
+/** "% worked" with a small coloured bar. */
+function PctBar({ v }: { v: number | null }) {
+  const w = v == null ? 0 : Math.round(v * 100);
+  const bar = w >= 60 ? TONE.emerald.bar : w >= 30 ? TONE.amber.bar : TONE.rose.bar;
+  return (
+    <span className="inline-flex items-center justify-end gap-1.5">
+      <span className="h-1.5 w-12 overflow-hidden rounded-full bg-surface-muted"><span className={cn("block h-full rounded-full bg-gradient-to-r", bar)} style={{ width: `${w}%` }} /></span>
+      <span className="w-11 text-right font-mono">{pct(v)}</span>
+    </span>
+  );
+}
+
+function TeamName({ team, label, onClick }: { team: string | null; label: string; onClick?: () => void }) {
+  const dot = <span className={cn("h-2 w-2 shrink-0 rounded-full", TONE[teamTone(team)].dot)} />;
+  return onClick
+    ? <button onClick={onClick} className="inline-flex items-center gap-1.5 whitespace-nowrap hover:text-primary">{dot}{label}</button>
+    : <span className="inline-flex items-center gap-1.5 whitespace-nowrap">{dot}{label}</span>;
+}
+
+const THEAD = "sticky top-0 z-[1] bg-gradient-to-r from-indigo-500/10 via-violet-500/[0.07] to-sky-500/10 backdrop-blur";
 
 function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, openAccounts }: {
   data: any; f: UiFilters; qs: string; filterBar: React.ReactNode;
@@ -523,27 +572,27 @@ function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, open
   return (
     <div>
       {filterBar}
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <TeamChips team={f.team} onTeam={onTeam} />
         <span className="text-[11px] text-ink-subtle">Activity date range: {etDay(period.from)} – {etDay(period.to - 1)}</span>
       </div>
 
       {/* 1. Worked in the last 60 days */}
-      <SectionTitle sub="Based on each company's HubSpot Last Activity Date. Click a number to see those accounts.">
+      <SectionTitle icon={Activity} tone="teal" sub="Based on each company's HubSpot Last Activity Date. Click a number to see those accounts.">
         Accounts worked in the last 60 days
       </SectionTitle>
-      <div className="grid gap-4 xl:grid-cols-[2fr_3fr]">
+      <div className="grid gap-3 xl:grid-cols-[2fr_3fr]">
         <Card title="By team">
           <table className="w-full text-xs">
-            <thead className="border-b border-line"><tr><TH>Team</TH><TH right>Accounts</TH><TH right>Worked &lt;60d</TH><TH right>Not worked 60+d</TH><TH right>No activity</TH><TH right>% worked</TH></tr></thead>
+            <thead className={THEAD}><tr><TH>Team</TH><TH right>Accounts</TH><TH right>Worked &lt;60d</TH><TH right>Not worked 60+d</TH><TH right>No activity</TH><TH right>% worked</TH></tr></thead>
             <tbody>{data.activity_teams.map((t: any) => (
-              <tr key={t.team} className={cn("border-b border-line/60", f.team === t.team && "bg-primary/5 font-semibold")}>
-                <td className="px-2 py-1.5"><button onClick={() => onTeam(t.team)} className="hover:text-primary">{t.label}</button></td>
-                <td className="px-2 py-1.5 text-right"><Num v={t.accounts} onClick={() => openAccounts("", t.team, "")} /></td>
-                <td className="px-2 py-1.5 text-right"><Num v={t.worked_60} onClick={() => openAccounts("", t.team, "cstatus:active")} /></td>
-                <td className="px-2 py-1.5 text-right"><Num v={t.not_worked_60} onClick={() => openAccounts("", t.team, "cstatus:inactive_60plus")} /></td>
-                <td className="px-2 py-1.5 text-right"><Num v={t.no_activity} onClick={() => openAccounts("", t.team, "cstatus:no_activity")} /></td>
-                <td className="px-2 py-1.5 text-right font-mono">{pct(t.pct_worked)}</td>
+              <tr key={t.team} className={cn("border-b border-line/60", f.team === t.team && cn("font-semibold", TONE[teamTone(t.team)].soft))}>
+                <td className="px-2 py-1"><TeamName team={t.team} label={t.label} onClick={() => onTeam(t.team)} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.accounts} onClick={() => openAccounts("", t.team, "")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.worked_60} onClick={() => openAccounts("", t.team, "cstatus:active")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.not_worked_60} onClick={() => openAccounts("", t.team, "cstatus:inactive_60plus")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.no_activity} onClick={() => openAccounts("", t.team, "cstatus:no_activity")} /></td>
+                <td className="px-2 py-1 text-right"><PctBar v={t.pct_worked} /></td>
               </tr>
             ))}</tbody>
           </table>
@@ -551,16 +600,16 @@ function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, open
         <Card title={`Members — ${teamLabel}`}>
           <div className="max-h-[420px] overflow-auto">
             <table className="w-full text-xs">
-              <thead className="sticky top-0 border-b border-line bg-surface"><tr><TH>Member</TH><TH>Role</TH><TH right>Accounts</TH><TH right>Worked &lt;60d</TH><TH right>Not worked 60+d</TH><TH right>No activity</TH><TH right>% worked</TH></tr></thead>
+              <thead className={THEAD}><tr><TH>Member</TH><TH>Role</TH><TH right>Accounts</TH><TH right>Worked &lt;60d</TH><TH right>Not worked 60+d</TH><TH right>No activity</TH><TH right>% worked</TH></tr></thead>
               <tbody>{data.activity_members.map((m: any) => (
                 <tr key={m.owner_id} className="border-b border-line/60">
-                  <td className="px-2 py-1.5">{m.name}{!m.in_team && m.owner_id !== "none" && <span className="ml-1 text-[10px] text-ink-subtle">(not in team)</span>}</td>
-                  <td className="px-2 py-1.5"><RoleChip role={m.role} /></td>
-                  <td className="px-2 py-1.5 text-right"><Num v={m.accounts} onClick={() => openAccounts(m.owner_id, "", "")} /></td>
-                  <td className="px-2 py-1.5 text-right"><Num v={m.worked_60} onClick={() => openAccounts(m.owner_id, "", "cstatus:active")} /></td>
-                  <td className="px-2 py-1.5 text-right"><Num v={m.not_worked_60} strong onClick={() => openAccounts(m.owner_id, "", "cstatus:inactive_60plus")} /></td>
-                  <td className="px-2 py-1.5 text-right"><Num v={m.no_activity} onClick={() => openAccounts(m.owner_id, "", "cstatus:no_activity")} /></td>
-                  <td className="px-2 py-1.5 text-right font-mono">{pct(m.pct_worked)}</td>
+                  <td className="px-2 py-1"><TeamName team={m.team} label={m.name} />{!m.in_team && m.owner_id !== "none" && <span className="ml-1 text-[10px] text-ink-subtle">(not in team)</span>}</td>
+                  <td className="px-2 py-1"><RoleChip role={m.role} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.accounts} onClick={() => openAccounts(m.owner_id, "", "")} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.worked_60} onClick={() => openAccounts(m.owner_id, "", "cstatus:active")} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.not_worked_60} strong onClick={() => openAccounts(m.owner_id, "", "cstatus:inactive_60plus")} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.no_activity} onClick={() => openAccounts(m.owner_id, "", "cstatus:no_activity")} /></td>
+                  <td className="px-2 py-1 text-right"><PctBar v={m.pct_worked} /></td>
                 </tr>
               ))}
               {data.activity_members.length === 0 && <tr><td colSpan={7} className="px-2 py-6 text-center text-ink-subtle">No members in these filters.</td></tr>}</tbody>
@@ -570,25 +619,25 @@ function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, open
       </div>
 
       {/* 2. Demos and deals — last quarter */}
-      <SectionTitle sub="Only last-quarter deals are stored. Deals follow the Team and Team member filters. Click a number for the deal details.">
+      <SectionTitle icon={CalendarCheck} tone="sky" sub="Only last-quarter deals are stored. Deals follow the Team and Team member filters. Click a number for the deal details.">
         Demos &amp; deals — {qLabel}
       </SectionTitle>
-      <div className="grid grid-cols-3 gap-3">
-        <Stat label="Demos booked" value={fmt(data.deal_totals.booked)} sub="Deal reached Discovery Call Done" onClick={() => showDeals(f.team, f.owner, "booked", `Demos booked — ${teamLabel}`)} />
-        <Stat label="Demos conducted" value={fmt(data.deal_totals.conducted)} sub="Deal reached Demo Done / Accepted / In Discussion" onClick={() => showDeals(f.team, f.owner, "conducted", `Demos conducted — ${teamLabel}`)} />
-        <Stat label="Deals in the quarter" value={fmt(data.deal_totals.deals)} sub="Created, booked or demo done in the quarter" onClick={() => showDeals(f.team, f.owner, "all", `All deals — ${teamLabel}`)} />
+      <div className="grid grid-cols-3 gap-2.5">
+        <Stat tone="sky" label="Demos booked" value={fmt(data.deal_totals.booked)} sub="Deal reached Discovery Call Done" onClick={() => showDeals(f.team, f.owner, "booked", `Demos booked — ${teamLabel}`)} />
+        <Stat tone="emerald" label="Demos conducted" value={fmt(data.deal_totals.conducted)} sub="Deal reached Demo Done / Accepted / In Discussion" onClick={() => showDeals(f.team, f.owner, "conducted", `Demos conducted — ${teamLabel}`)} />
+        <Stat tone="violet" label="Deals in the quarter" value={fmt(data.deal_totals.deals)} sub="Created, booked or demo done in the quarter" onClick={() => showDeals(f.team, f.owner, "all", `All deals — ${teamLabel}`)} />
       </div>
-      <div className="mt-4 grid gap-4 xl:grid-cols-[2fr_3fr]">
-        <div className="space-y-4">
+      <div className="mt-3 grid gap-3 xl:grid-cols-[2fr_3fr]">
+        <div className="space-y-3">
           <Card title="By team">
             <table className="w-full text-xs">
-              <thead className="border-b border-line"><tr><TH>Team</TH><TH right>Demos booked</TH><TH right>Demos conducted</TH><TH right>Deals</TH></tr></thead>
+              <thead className={THEAD}><tr><TH>Team</TH><TH right>Demos booked</TH><TH right>Demos conducted</TH><TH right>Deals</TH></tr></thead>
               <tbody>{data.deal_teams.map((t: any) => (
-                <tr key={t.team} className={cn("border-b border-line/60", f.team === t.team && "bg-primary/5 font-semibold")}>
-                  <td className="px-2 py-1.5"><button onClick={() => onTeam(t.team)} className="hover:text-primary">{t.label}</button></td>
-                  <td className="px-2 py-1.5 text-right"><Num v={t.booked} onClick={() => showDeals(t.team, "", "booked", `Demos booked — ${t.label}`)} /></td>
-                  <td className="px-2 py-1.5 text-right"><Num v={t.conducted} onClick={() => showDeals(t.team, "", "conducted", `Demos conducted — ${t.label}`)} /></td>
-                  <td className="px-2 py-1.5 text-right"><Num v={t.deals} onClick={() => showDeals(t.team, "", "all", `All deals — ${t.label}`)} /></td>
+                <tr key={t.team} className={cn("border-b border-line/60", f.team === t.team && cn("font-semibold", TONE[teamTone(t.team)].soft))}>
+                  <td className="px-2 py-1"><TeamName team={t.team} label={t.label} onClick={() => onTeam(t.team)} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={t.booked} onClick={() => showDeals(t.team, "", "booked", `Demos booked — ${t.label}`)} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={t.conducted} onClick={() => showDeals(t.team, "", "conducted", `Demos conducted — ${t.label}`)} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={t.deals} onClick={() => showDeals(t.team, "", "all", `All deals — ${t.label}`)} /></td>
                 </tr>
               ))}</tbody>
             </table>
@@ -600,9 +649,9 @@ function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, open
                   const max = Math.max(...data.deal_stages.map((x: any) => x.count));
                   return (
                     <tr key={s.key} className="border-b border-line/60">
-                      <td className="w-40 px-2 py-1.5">{s.label}</td>
-                      <td className="px-2 py-1.5"><div className="h-2 rounded bg-primary" style={{ width: `${(s.count / max) * 100}%` }} /></td>
-                      <td className="w-14 px-2 py-1.5 text-right font-mono">{fmt(s.count)}</td>
+                      <td className="w-40 px-2 py-1">{s.label}</td>
+                      <td className="px-2 py-1"><div className={cn("h-2.5 rounded-full bg-gradient-to-r", TONE.sky.bar)} style={{ width: `${(s.count / max) * 100}%` }} /></td>
+                      <td className="w-14 px-2 py-1 text-right font-mono">{fmt(s.count)}</td>
                     </tr>
                   );
                 })}</tbody>
@@ -613,14 +662,14 @@ function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, open
         <Card title={`Members — ${teamLabel}`}>
           <div className="max-h-[520px] overflow-auto">
             <table className="w-full text-xs">
-              <thead className="sticky top-0 border-b border-line bg-surface"><tr><TH>Member</TH><TH>Role</TH><TH right>Demos booked</TH><TH right>Demos conducted</TH><TH right>Deals in their name</TH></tr></thead>
+              <thead className={THEAD}><tr><TH>Member</TH><TH>Role</TH><TH right>Demos booked</TH><TH right>Demos conducted</TH><TH right>Deals in their name</TH></tr></thead>
               <tbody>{data.deal_members.map((m: any) => (
                 <tr key={m.owner_id} className="border-b border-line/60">
-                  <td className="px-2 py-1.5">{m.name}{!m.in_team && <span className="ml-1 text-[10px] text-ink-subtle">(not in team)</span>}</td>
-                  <td className="px-2 py-1.5"><RoleChip role={m.role} /></td>
-                  <td className="px-2 py-1.5 text-right"><Num v={m.booked} onClick={() => showDeals(f.team, m.owner_id, "booked", `Demos booked by ${m.name}`)} /></td>
-                  <td className="px-2 py-1.5 text-right"><Num v={m.conducted} onClick={() => showDeals(f.team, m.owner_id, "conducted", `Demos conducted by ${m.name}`)} /></td>
-                  <td className="px-2 py-1.5 text-right"><Num v={m.deals} strong onClick={() => showDeals(f.team, m.owner_id, "all", `Deals of ${m.name}`)} /></td>
+                  <td className="px-2 py-1"><TeamName team={m.team} label={m.name} />{!m.in_team && <span className="ml-1 text-[10px] text-ink-subtle">(not in team)</span>}</td>
+                  <td className="px-2 py-1"><RoleChip role={m.role} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.booked} onClick={() => showDeals(f.team, m.owner_id, "booked", `Demos booked by ${m.name}`)} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.conducted} onClick={() => showDeals(f.team, m.owner_id, "conducted", `Demos conducted by ${m.name}`)} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.deals} strong onClick={() => showDeals(f.team, m.owner_id, "all", `Deals of ${m.name}`)} /></td>
                 </tr>
               ))}
               {data.deal_members.length === 0 && <tr><td colSpan={5} className="px-2 py-6 text-center text-ink-subtle">No deals in the quarter for these filters.</td></tr>}</tbody>
@@ -632,31 +681,31 @@ function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, open
       {dealSel && <DealList sel={dealSel} qs={qs} onClose={() => setDealSel(null)} />}
 
       {/* 3. Account & contact coverage */}
-      <SectionTitle sub="Each member's OWN accounts, within the activity date range">
+      <SectionTitle icon={Target} tone="rose" sub="Each member's OWN accounts, within the activity date range">
         Are members using their accounts and contacts?
       </SectionTitle>
       <Card title={`Members — ${teamLabel}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
-            <thead className="border-b border-line"><tr>
+            <thead className={THEAD}><tr>
               <TH>Member</TH><TH>Role</TH><TH right>Accounts</TH><TH right>Accounts contacted</TH><TH right>Not contacted</TH>
               <TH right>Contacts</TH><TH right>Contacts reached</TH><TH right>Not reached</TH>
               <TH right>ICP accounts</TH><TH right>ICP contacted</TH><TH right>Avg calls / ICP</TH><TH right>Avg emails / ICP</TH>
             </tr></thead>
             <tbody>{data.utilization.map((m: any) => (
               <tr key={m.owner_id} className="border-b border-line/60">
-                <td className="px-2 py-1.5">{m.name}{!m.in_team && <span className="ml-1 text-[10px] text-ink-subtle">(not in team)</span>}</td>
-                <td className="px-2 py-1.5"><RoleChip role={m.role} /></td>
-                <td className="px-2 py-1.5 text-right"><Num v={m.accounts} onClick={() => openAccounts(m.owner_id, "", "")} /></td>
-                <td className="px-2 py-1.5 text-right"><Num v={m.accounts_contacted} onClick={() => openAccounts(m.owner_id, "", "contacted")} /></td>
-                <td className="px-2 py-1.5 text-right"><Num v={m.accounts_not_contacted} strong onClick={() => openAccounts(m.owner_id, "", "not_contacted")} /></td>
-                <td className="px-2 py-1.5 text-right font-mono">{fmt(m.contacts)}</td>
-                <td className="px-2 py-1.5 text-right font-mono">{fmt(m.contacts_reached)}</td>
-                <td className="px-2 py-1.5 text-right font-mono font-semibold">{fmt(m.contacts_not_reached)}</td>
-                <td className="px-2 py-1.5 text-right"><Num v={m.icp_accounts} onClick={() => openAccounts(m.owner_id, "", "icp:yes")} /></td>
-                <td className="px-2 py-1.5 text-right"><Num v={m.icp_contacted} onClick={() => openAccounts(m.owner_id, "", "icp_contacted")} /></td>
-                <td className="px-2 py-1.5 text-right font-mono">{m.avg_calls_per_icp == null ? "—" : m.avg_calls_per_icp.toFixed(1)}</td>
-                <td className="px-2 py-1.5 text-right font-mono">{m.avg_emails_per_icp == null ? "—" : m.avg_emails_per_icp.toFixed(1)}</td>
+                <td className="px-2 py-1"><TeamName team={m.team} label={m.name} />{!m.in_team && <span className="ml-1 text-[10px] text-ink-subtle">(not in team)</span>}</td>
+                <td className="px-2 py-1"><RoleChip role={m.role} /></td>
+                <td className="px-2 py-1 text-right"><Num v={m.accounts} onClick={() => openAccounts(m.owner_id, "", "")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={m.accounts_contacted} onClick={() => openAccounts(m.owner_id, "", "contacted")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={m.accounts_not_contacted} strong onClick={() => openAccounts(m.owner_id, "", "not_contacted")} /></td>
+                <td className="px-2 py-1 text-right font-mono">{fmt(m.contacts)}</td>
+                <td className="px-2 py-1 text-right font-mono">{fmt(m.contacts_reached)}</td>
+                <td className="px-2 py-1 text-right font-mono font-semibold text-rose-500">{fmt(m.contacts_not_reached)}</td>
+                <td className="px-2 py-1 text-right"><Num v={m.icp_accounts} onClick={() => openAccounts(m.owner_id, "", "icp:yes")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={m.icp_contacted} onClick={() => openAccounts(m.owner_id, "", "icp_contacted")} /></td>
+                <td className="px-2 py-1 text-right font-mono">{m.avg_calls_per_icp == null ? "—" : m.avg_calls_per_icp.toFixed(1)}</td>
+                <td className="px-2 py-1 text-right font-mono">{m.avg_emails_per_icp == null ? "—" : m.avg_emails_per_icp.toFixed(1)}</td>
               </tr>
             ))}
             {data.utilization.length === 0 && <tr><td colSpan={12} className="px-2 py-6 text-center text-ink-subtle">No members in these filters.</td></tr>}</tbody>
@@ -698,17 +747,17 @@ function DealList({ sel, qs, onClose }: { sel: { team: string; owner: string; ki
               </tr></thead>
               <tbody>{rows.map((d) => (
                 <tr key={d.id} className="border-t border-line">
-                  <td className="px-2 py-1.5"><a href={dealUrl(d.id)} target="_blank" rel="noreferrer" className="font-semibold text-ink hover:text-primary">{d.name}</a></td>
-                  <td className="px-2 py-1.5">{d.company_id ? <a href={companyUrl(d.company_id)} target="_blank" rel="noreferrer" className="hover:text-primary">{d.company_name ?? d.company_id}</a> : <span className="text-ink-subtle">No company</span>}</td>
-                  <td className="px-2 py-1.5">{d.stage}</td>
-                  <td className="px-2 py-1.5 text-right font-mono">{d.amount == null ? "—" : `$${fmt(Math.round(d.amount))}`}</td>
-                  <td className="px-2 py-1.5">{d.sdr}</td>
-                  <td className="px-2 py-1.5">{d.owner}</td>
-                  <td className="px-2 py-1.5">{d.team ?? "—"}</td>
-                  <td className="px-2 py-1.5">{etDay(d.created_ms)}</td>
-                  <td className="px-2 py-1.5">{etDay(d.booked_ms)}</td>
-                  <td className="px-2 py-1.5">{etDay(d.conducted_ms)}</td>
-                  <td className="px-2 py-1.5">{etDay(d.close_ms)}</td>
+                  <td className="px-2 py-1"><a href={dealUrl(d.id)} target="_blank" rel="noreferrer" className="font-semibold text-ink hover:text-primary">{d.name}</a></td>
+                  <td className="px-2 py-1">{d.company_id ? <a href={companyUrl(d.company_id)} target="_blank" rel="noreferrer" className="hover:text-primary">{d.company_name ?? d.company_id}</a> : <span className="text-ink-subtle">No company</span>}</td>
+                  <td className="px-2 py-1">{d.stage}</td>
+                  <td className="px-2 py-1 text-right font-mono">{d.amount == null ? "—" : `$${fmt(Math.round(d.amount))}`}</td>
+                  <td className="px-2 py-1">{d.sdr}</td>
+                  <td className="px-2 py-1">{d.owner}</td>
+                  <td className="px-2 py-1">{d.team ?? "—"}</td>
+                  <td className="px-2 py-1">{etDay(d.created_ms)}</td>
+                  <td className="px-2 py-1">{etDay(d.booked_ms)}</td>
+                  <td className="px-2 py-1">{etDay(d.conducted_ms)}</td>
+                  <td className="px-2 py-1">{etDay(d.close_ms)}</td>
                 </tr>
               ))}
               {rows.length === 0 && <tr><td colSpan={11} className="px-2 py-6 text-center text-ink-subtle">No deals.</td></tr>}</tbody>

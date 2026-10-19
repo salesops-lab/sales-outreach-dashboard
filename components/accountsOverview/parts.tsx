@@ -46,9 +46,9 @@ export function StatusChip({ s, th, days }: { s: string; th: { inact: number; de
 
 export function Card({ title, right, children, className }: { title: string; right?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
-    <Surface className={cn("p-4", className)}>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-subtle">{title}</h3>
+    <Surface className={cn("bg-surface/90 p-3 shadow-[0_6px_20px_-10px_rgba(79,70,229,0.25)] backdrop-blur transition-shadow duration-200 hover:shadow-[0_12px_30px_-12px_rgba(79,70,229,0.35)]", className)}>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted"><span className="h-3 w-1 rounded-full bg-gradient-to-b from-indigo-500 to-violet-500" />{title}</h3>
         {right}
       </div>
       {children}

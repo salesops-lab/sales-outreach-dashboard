@@ -127,3 +127,22 @@ body {
   background: var(--line-strong);
   border-radius: 9999px;
 }
+
+/* ── Accounts Overview: animated background + header (scoped to .ao-* classes) ───────────────── */
+.ao-bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.ao-bg span { position: absolute; border-radius: 9999px; filter: blur(70px); opacity: 0.32; }
+.ao-bg span:nth-child(1) { width: 520px; height: 520px; top: -140px; left: -120px; background: radial-gradient(circle, #6366f1, transparent 68%); animation: ao-drift-a 24s ease-in-out infinite alternate; }
+.ao-bg span:nth-child(2) { width: 560px; height: 560px; top: 30%; right: -180px; background: radial-gradient(circle, #10b981, transparent 68%); animation: ao-drift-b 28s ease-in-out infinite alternate; }
+.ao-bg span:nth-child(3) { width: 460px; height: 460px; bottom: -160px; left: 30%; background: radial-gradient(circle, #f59e0b, transparent 68%); animation: ao-drift-c 32s ease-in-out infinite alternate; }
+[data-theme="dark"] .ao-bg span { opacity: 0.18; }
+.ao-bg-soft span { opacity: 0.12; }
+[data-theme="dark"] .ao-bg-soft span { opacity: 0.08; }
+/* Subtle look: the header sits on white, so its white-on-colour text and chips switch to ink. */
+.ao-plain-hero p { color: var(--ink-muted); }
+.ao-plain-hero span[class*="bg-white"], .ao-plain-hero button { background: var(--surface-muted); color: var(--ink-muted); }
+@keyframes ao-drift-a { to { transform: translate(160px, 120px) scale(1.15); } }
+@keyframes ao-drift-b { to { transform: translate(-140px, -90px) scale(0.9); } }
+@keyframes ao-drift-c { to { transform: translate(120px, -140px) scale(1.1); } }
+.ao-hero { background: linear-gradient(110deg, #4f46e5, #7c3aed, #c026d3, #4f46e5); background-size: 300% 100%; animation: ao-sheen 16s linear infinite; }
+@keyframes ao-sheen { to { background-position: 300% 0; } }
+@media (prefers-reduced-motion: reduce) { .ao-bg span, .ao-hero { animation: none; } }

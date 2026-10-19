@@ -602,7 +602,10 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   **US TAM** cards (not filtered) → filters → team cards → member cards of the chosen team (role from
   the roster via `rolesFromRoster`) → 8 cards drilling one list (columns from `columns.tsx`: user can
   show/hide/re-order via "Manage columns", saved in localStorage; GD Name opens the `GroupDetail`
-  drawer ← `view=group`, `groupDetail` in `views.ts`). **Deals & Activity**: worked/not
+  drawer ← `view=group`, `groupDetail` in `views.ts`). **Look (user choice 2026-10-19): "Balanced"** — white cards
+  with a coloured top edge, coloured numbers, soft per-tone shadow + hover lift, a static gradient
+  header and a faint drifting background (`.ao-bg`, scoped `ao-*` CSS in `globals.css`). Colours come
+  from `components/accountsOverview/tones.ts` (literal classes; one colour per team; `LOOK` constant). **Deals & Activity**: worked/not
   worked in 60d per team → member; **last completed quarter** demos/deals per team → member → deal
   list (booked → SDR via `sdr_owner`, conducted → deal owner); account/contact utilization per member.
   An earlier 8-sub-tab version was rejected as repetitive — don't re-add tabs that restate the same numbers.
