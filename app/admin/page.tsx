@@ -7,6 +7,7 @@ import { setUserActive, savePod, removePod, saveManager, removeManager, addRole,
 import { AddUserForm } from "../../components/admin/AddUserForm";
 import IntegrityQueue from "../../components/admin/IntegrityQueue";
 import { AccessManager } from "../../components/admin/AccessManager";
+import { RosterAssign } from "../../components/admin/RosterAssign";
 import { AuthUserLite, buildAccessList } from "../../lib/access/members";
 
 export const dynamic = "force-dynamic";
@@ -41,13 +42,17 @@ export default async function AdminPage() {
     }
   }
 
-  const podName = new Map(ts.pods.map((p) => [p.key, p.name]));
   const mgrName = new Map(Object.values(ts.managers).map((m) => [m.key, m.name]));
   const members = [...ts.members].sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind.localeCompare(b.kind)));
   const active = members.filter((m) => m.active);
   const inactive = members.filter((m) => !m.active);
 
   const access = buildAccessList(authUsers, roles as { email: string; role: string }[], ts.members);
+
+  const podOptions = ts.pods.map((p) => ({ key: p.key, name: p.name }));
+  const managerOptions = Object.values(ts.managers)
+    .map((m) => ({ key: m.key, name: m.parent ? `${m.name} (TL → ${mgrName.get(m.parent) ?? m.parent})` : m.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const seeded = ts.members.some((m) => m.email); // DB seed sets emails; config fallback has none
 
@@ -94,7 +99,11 @@ export default async function AdminPage() {
 
       {/* ── Roster ────────────────────────────────────────────────────── */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5">
-        <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">Tracked roster ({active.length} active{inactive.length ? `, ${inactive.length} inactive` : ""})</h2>
+        <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-slate-500">Tracked roster ({active.length} active{inactive.length ? `, ${inactive.length} inactive` : ""})</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          Change a person&apos;s <strong>AE pod</strong> or <strong>Manager</strong> with the dropdowns — it saves straight away and
+          shows across the dashboard (team views, filters, Slack Reports) within about 30 seconds. Reactivate someone to edit them.
+        </p>
         <table className="w-full text-sm">
           <thead><tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-400">
             <th className="py-1">Name</th><th>Email</th><th>Type</th><th>AE pod</th><th>Manager</th><th /></tr></thead>
@@ -104,8 +113,16 @@ export default async function AdminPage() {
                 <td className="py-1.5 font-medium text-slate-800">{m.name}</td>
                 <td className="text-slate-500">{m.email ?? "—"}</td>
                 <td className="uppercase text-xs font-semibold text-slate-600">{m.kind}</td>
-                <td className="text-slate-600">{m.aePod ? podName.get(m.aePod) ?? m.aePod : "—"}</td>
-                <td className="text-slate-600">{m.managerKey ? mgrName.get(m.managerKey) ?? m.managerKey : "—"}</td>
+                <td className="py-1">
+                  <RosterAssign ownerId={m.ownerId} field="ae_pod" value={m.aePod} emptyLabel="— No pod"
+                    options={podOptions} disabled={!m.active} />
+                </td>
+                <td className="py-1">
+                  {m.kind === "sdr"
+                    ? <RosterAssign ownerId={m.ownerId} field="manager_key" value={m.managerKey} emptyLabel="— No manager"
+                        options={managerOptions} disabled={!m.active} />
+                    : <span className="text-xs text-slate-400" title="AEs report to their AE pod, not an SDR manager">— (AE)</span>}
+                </td>
                 <td className="text-right">
                   <form action={setUserActive}>
                     <input type="hidden" name="owner_id" value={m.ownerId} />
