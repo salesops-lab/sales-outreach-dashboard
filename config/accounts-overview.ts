@@ -37,6 +37,7 @@ export const AO_COMPANY_PROPERTIES = [
   "notes_last_contacted",   // "Last Contacted" — HubSpot-maintained, excludes notes
   "rooftop_last_activity",  // "Rooftop Last Activity" — custom property (null ≠ never contacted)
   "num_associated_contacts",
+  "potential_rooftops",     // "#Potential Rooftops" — custom number
   "hs_lastmodifieddate",
 ];
 

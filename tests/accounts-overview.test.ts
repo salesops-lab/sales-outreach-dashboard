@@ -304,3 +304,21 @@ describe("params", () => {
     expect(csv).toContain("\"A; B\"");
   });
 });
+
+describe("group detail", () => {
+  it("lists every rooftop of a GD across teams, ignoring the other filters", () => {
+    const prep = prepare(data({
+      companies: [
+        co("1", { gd_name: "Alpha Group", potential_rooftops: 5, rooftop_last_activity_ms: NOW - 3 * DAY }),
+        co("2", { gd_name: "alpha group", team: "Prince", state: "CA", type_of_dealership: "Independent", potential_rooftops: 7, last_activity_ms: NOW - 80 * DAY }),
+        co("3", { gd_name: "Beta" }), co("4", { gd_name: "Alpha Group", team: null }),
+      ],
+    }));
+    const v = computeView(prep, filters({ state: "TX", teams: ["Neelima"] }), "group", { ...LIST, drill: "Alpha Group" }, NOW) as any;
+    expect(v.group).toMatchObject({ rooftops: 2, potential_rooftops: 7, franchise: 1, independent: 1, worked_60: 1, not_worked_60: 1,
+      rooftop_last_activity_ms: NOW - 3 * DAY });
+    expect(v.group.rows.map((r: any) => [r.id, r.dealer_type, r.potential_rooftops])).toEqual([["1", "Franchise", 5], ["2", "Independent", 7]]);
+    expect((computeView(prep, filters(), "group", { ...LIST, drill: "nope" }, NOW) as any).group).toBeNull();
+    expect(companyRow("9", { potential_rooftops: "12" }).potential_rooftops).toBe(12);
+  });
+});

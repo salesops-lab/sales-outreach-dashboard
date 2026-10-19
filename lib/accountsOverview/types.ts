@@ -30,6 +30,7 @@ export interface AoCompanyRow {
   last_contacted_ms: number | null;  // notes_last_contacted
   rooftop_last_activity_ms: number | null; // rooftop_last_activity
   num_contacts: number | null;     // HubSpot num_associated_contacts (reconciliation reference)
+  potential_rooftops?: number | null; // "#Potential Rooftops" (custom); null on rows from before 2026-10-19
   hs_lastmodified_ms: number | null;
 }
 

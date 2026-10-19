@@ -369,6 +369,8 @@ export interface AccountListRow {
   activity_owners: string[];
   type: AccountType; type_reason: string | null; gd_name: string | null; gd_id: string | null;
   rooftop_id: string; icp: IcpStatus;
+  dealer_type: string | null;      // raw HubSpot Type of Dealership
+  potential_rooftops: number | null;
   company_last_activity_ms: number | null; company_days: number | null; company_status: InactivityStatus;
   rooftop_last_activity_ms: number | null; rooftop_days: number | null; rooftop_status: InactivityStatus;
   last_contacted_ms: number | null; never_contacted: boolean;
@@ -385,6 +387,7 @@ export function toListRow(c: AccountCalc, prep: Prepared): AccountListRow {
     activity_owners: [...c.activityOwners].map((id) => prep.ownerName(id)),
     type: c.p.type.type, type_reason: c.p.type.reason, gd_name: c.p.gdName, gd_id: r.gd_id,
     rooftop_id: r.hs_id, icp: c.p.icp,
+    dealer_type: r.type_of_dealership, potential_rooftops: r.potential_rooftops ?? null,
     company_last_activity_ms: r.last_activity_ms, company_days: c.cDays, company_status: c.cStatus,
     rooftop_last_activity_ms: r.rooftop_last_activity_ms, rooftop_days: c.rDays, rooftop_status: c.rStatus,
     last_contacted_ms: r.last_contacted_ms, never_contacted: c.neverContacted,

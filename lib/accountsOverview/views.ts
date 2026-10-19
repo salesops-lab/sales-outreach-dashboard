@@ -10,7 +10,7 @@ import {
 } from "./compute";
 import { AoDealRow, AoFilters } from "./types";
 
-export const AO_VIEWS = ["accounts", "activity", "deals"] as const;
+export const AO_VIEWS = ["accounts", "activity", "deals", "group"] as const;
 export type AoView = (typeof AO_VIEWS)[number];
 
 export interface ListOpts { drill: string; sort: string; dir: "asc" | "desc"; page: number; pageSize: number }
@@ -170,6 +170,7 @@ export function computeView(prep: Prepared, f: AoFilters, view: AoView, o: ListO
   }
 
   if (view === "deals") return { meta, deals: dealList(prep, f, d ?? { team: "", owner: "", kind: "all" }) };
+  if (view === "group") return { meta, group: groupDetail(prep, f, o.drill, nowMs) };
 
   // ── activity tab ──
   const activityRow = (list: AccountCalc[]) => ({
@@ -291,6 +292,41 @@ export function dealList(prep: Prepared, f: AoFilters, d: DealOpts): DealListRow
       };
     })
     .sort((a, b) => (b.booked_ms ?? b.created_ms ?? 0) - (a.booked_ms ?? a.created_ms ?? 0));
+}
+
+/** Everything about one dealership group (by GD Name, case-insensitive): every rooftop in the four
+ *  teams, regardless of the other filters (only the activity date range / type still apply to the
+ *  call and email counts). `gd` arrives in the list's `drill` slot. */
+export function groupDetail(prep: Prepared, f: AoFilters, gd: string, nowMs: number) {
+  const key = gd.trim().toLowerCase();
+  if (!key) return null;
+  const accts = filterAccounts(prep, {
+    ...f, teams: [], owner: null, gdName: key, country: "all", state: "all", dealerType: "all", icp: "all", companyDate: null, q: "",
+  }, nowMs);
+  if (!accts.length) return null;
+  const rows = sortRows(accts.map((c) => toListRow(c, prep)), "name", "asc");
+  const latest = (vals: (number | null)[]) => vals.reduce<number | null>((m, v) => (v != null && (m == null || v > m) ? v : m), null);
+  const ids = new Set(accts.map((c) => c.p.row.hs_id));
+  const deals = prep.data.deals.filter((d) => d.company_ids.some((id) => ids.has(id)));
+  const potentials = rows.map((r) => r.potential_rooftops).filter((v): v is number => v != null);
+  const x = tally(accts);
+  const by = (vals: string[]) => countBy(vals).sort((a, b) => b.count - a.count);
+  return {
+    name: rows[0].gd_name ?? gd,
+    rooftops: rows.length,
+    potential_rooftops: potentials.length ? Math.max(...potentials) : null,
+    franchise: rows.filter((r) => (r.dealer_type ?? "").toLowerCase() === "franchise").length,
+    independent: rows.filter((r) => (r.dealer_type ?? "").toLowerCase() === "independent").length,
+    worked_60: accts.filter(worked).length, not_worked_60: accts.filter(notWorked).length,
+    last_activity_ms: latest(rows.map((r) => r.company_last_activity_ms)),
+    rooftop_last_activity_ms: latest(rows.map((r) => r.rooftop_last_activity_ms)),
+    teams: by(rows.map((r) => r.team ?? "No team")),
+    owners: by(rows.map((r) => r.owner_name)),
+    states: by(rows.map((r) => r.state ?? "Unknown")),
+    contacts: x.contacts, calls: x.calls, emails: x.emails, touchpoints: x.touchpoints,
+    quarter_deals: deals.length,
+    rows,
+  };
 }
 
 /** Full (unpaged) account rows for CSV export. */

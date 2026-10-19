@@ -111,7 +111,7 @@ and the Intelligence 2.0 pure logic — signal prompt/coercion/rescan (`intel-si
 the Focus merge incl. revival-window edges (`intel-focus.test.ts`), and the Radar
 ranking incl. the zombie sink (`intel-radar.test.ts`); and the Slack Reports Call Blitz fold
 (`slack-reports.test.ts`); and the Accounts Overview classifiers + engine + params
-(`accounts-overview.test.ts`); and the Admin dashboard-access merge (`access-members.test.ts`) — 28 files / 270 tests in all. Never
+(`accounts-overview.test.ts`); and the Admin dashboard-access merge (`access-members.test.ts`) — 28 files / 271 tests in all. Never
 import a `server-only`-guarded module (`lib/supabase/admin.ts`,
 `lib/callquality/fetch.ts`, `lib/agent/openai|store|runner.ts`, `lib/slackReports/build.ts` — which
 transitively pulls in `supabaseAdmin` via `lib/spine/store.ts`/`lib/team/load.ts`) from a test — it
@@ -600,7 +600,9 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   filter bar (Team, Team member = account owner, GD Name, Type, Company ICP, Country, State, Last
   Activity Date, activity date range [default all synced], activity type). **Accounts**: HubSpot-wide
   **US TAM** cards (not filtered) → filters → team cards → member cards of the chosen team (role from
-  the roster via `rolesFromRoster`) → 8 cards drilling one list. **Deals & Activity**: worked/not
+  the roster via `rolesFromRoster`) → 8 cards drilling one list (columns from `columns.tsx`: user can
+  show/hide/re-order via "Manage columns", saved in localStorage; GD Name opens the `GroupDetail`
+  drawer ← `view=group`, `groupDetail` in `views.ts`). **Deals & Activity**: worked/not
   worked in 60d per team → member; **last completed quarter** demos/deals per team → member → deal
   list (booked → SDR via `sdr_owner`, conducted → deal owner); account/contact utilization per member.
   An earlier 8-sub-tab version was rejected as repetitive — don't re-add tabs that restate the same numbers.
