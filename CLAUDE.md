@@ -607,9 +607,15 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   drawer ← `view=group`, `groupDetail` in `views.ts`). **Look (user choice 2026-10-19): "Balanced"** — white cards
   with a coloured top edge, coloured numbers, soft per-tone shadow + hover lift, a static gradient
   header and a faint drifting background (`.ao-bg`, scoped `ao-*` CSS in `globals.css`). Colours come
-  from `components/accountsOverview/tones.ts` (literal classes; one colour per team; `LOOK` constant). **Deals & Activity**: worked/not
-  worked in 60d per team → member; **last completed quarter** demos/deals per team → member → deal
-  list (booked → SDR via `sdr_owner`, conducted → deal owner); account/contact utilization per member.
+  from `components/accountsOverview/tones.ts` (literal classes; one colour per team; `LOOK` constant). The
+  60-day worked / not worked / no-activity columns live INSIDE the Accounts tab's team + member tables
+  (`workRow`) — not a separate section (would list the same people twice). **Deals & Pipeline** (tab
+  key `activity`): **last completed quarter** demos/deals by team + by stage → team members (booked →
+  SDR via `sdr_owner`, conducted → deal owner) → per-member pipeline blocks with deals grouped by stage
+  (`deal_rows`; lost stages last via `stageRank`) → "Are members using their accounts?" funnel over
+  each member's OWN accounts (owned → worked → contacts reached/connected → ICP worked/connected/
+  meeting-or-demo → meetings booked/logged → demos booked/done), default last 3 months when no
+  activity range is set (`activityDefault`), demos always the stored quarter.
   An earlier 8-sub-tab version was rejected as repetitive — don't re-add tabs that restate the same numbers.
 - **US TAM = Country Dropdown (`country_dropdown`) = "United States"** (119,645 on 2026-10-17, the
   old TAM dashboard's number) — counted at sync time (`pullTam`: Search totals + GD-Name rows for the

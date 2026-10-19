@@ -54,7 +54,7 @@ export function parseRequest(sp: URLSearchParams, nowMs: number, windowStartMs: 
     companyDate: dateFilter(sp, "c", nowMs),
     q: (sp.get("q") ?? "").slice(0, 200),
     activityTypes,
-    activityFrom: fromMs!, activityTo: toMs!,
+    activityFrom: fromMs!, activityTo: toMs!, activityDefault: periodPreset === "all" || periodPreset === "any",
   };
   const v = sp.get("view") as AoView | null;
   const view: AoView = v && (AO_VIEWS as readonly string[]).includes(v) ? v : "accounts";

@@ -222,21 +222,29 @@ describe("engine", () => {
       deals: [
         deal({ hs_id: "d1", demo_booked_ms: NOW - 50 * DAY }),
         deal({ hs_id: "d2", stage_key: "demo_done", demo_booked_ms: NOW - 200 * DAY, demo_completed_ms: NOW - 20 * DAY }),
-        deal({ hs_id: "d3", team: "Prince", sdr_owner_id: "x", deal_owner_id: "y", demo_booked_ms: NOW - 40 * DAY }),
+        deal({ hs_id: "d3", team: "Prince", sdr_owner_id: "x", deal_owner_id: "y", company_ids: ["4"], demo_booked_ms: NOW - 40 * DAY }),
       ],
     });
     const v = computeView(prep, filters({ country: "all" }), "activity", LIST, NOW) as any;
-    expect(v.activity_teams.find((t: any) => t.team === "Neelima")).toMatchObject({ accounts: 3, worked_60: 1, not_worked_60: 1, no_activity: 1 });
-    const rep = v.activity_members.find((m: any) => m.owner_id === "rep1");
-    expect(rep).toMatchObject({ role: "SDR", accounts: 3, worked_60: 1, not_worked_60: 1, no_activity: 1 });
+    // 60-day work now lives on the Accounts tab's team + member rows
+    const acc = computeView(prep, filters({ country: "all" }), "accounts", LIST, NOW) as any;
+    expect(acc.teams.find((t: any) => t.team === "Neelima")).toMatchObject({ total: 3, worked_60: 1, not_worked_60: 1, no_activity: 1 });
+    expect(acc.members.find((m: any) => m.owner_id === "rep1")).toMatchObject({ role: "SDR", total: 3, worked_60: 1, not_worked_60: 1, no_activity: 1 });
     expect(v.deal_teams.find((t: any) => t.team === "Neelima")).toMatchObject({ deals: 2, booked: 1, conducted: 1 });
     expect(v.deal_teams.find((t: any) => t.team === "Prince")).toMatchObject({ deals: 1, booked: 1 });
     // booked → SDR, conducted → deal owner (AE)
     expect(v.deal_members.find((m: any) => m.owner_id === "rep1")).toMatchObject({ booked: 1, conducted: 0, deals: 2 });
     expect(v.deal_members.find((m: any) => m.owner_id === "ae")).toMatchObject({ booked: 0, conducted: 1, deals: 2, role: "AE" });
+    // pipeline rows carry the people and the stage order
+    expect(v.deal_rows.map((d: any) => [d.id, d.sdr_id, d.owner_id, d.stage_key]).sort()).toEqual([
+      ["d1", "rep1", "ae", "discovery_done"], ["d2", "rep1", "ae", "demo_done"], ["d3", "x", "y", "discovery_done"]]);
+    // utilization funnel over the member's own accounts (explicit range here, so not the 3-month default)
     const u = v.utilization.find((m: any) => m.owner_id === "rep1");
-    expect(u).toMatchObject({ accounts: 3, accounts_contacted: 1, contacts: 2, contacts_reached: 1, contacts_not_reached: 1,
-      icp_accounts: 2, icp_contacted: 1, icp_calls: 1, icp_emails: 1, avg_calls_per_icp: 0.5, avg_emails_per_icp: 0.5 });
+    expect(u).toMatchObject({ accounts: 3, worked: 1, contacts: 2, contacts_reached: 1, icp_accounts: 2, icp_worked: 1,
+      demos_booked: 1, demos_done: 1 });
+    expect(v.util_period.default_3m).toBe(false);
+    const d3m = computeView(prep, filters({ country: "all", activityDefault: true }), "activity", LIST, NOW) as any;
+    expect(d3m.util_period.default_3m).toBe(true);
     // deal list: one person's booked demos / everything for a team
     expect(dealList(prep, filters(), { team: "", owner: "rep1", kind: "booked" }).map((d) => d.id)).toEqual(["d1"]);
     expect(dealList(prep, filters(), { team: "Prince", owner: "", kind: "all" }).map((d) => d.id)).toEqual(["d3"]);

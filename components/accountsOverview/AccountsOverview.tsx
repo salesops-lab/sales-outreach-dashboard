@@ -1,17 +1,17 @@
 "use client";
 /**
  * Accounts Overview (/accounts-overview) — two tabs, one shared filter bar, no filter applied by default.
- *   · Accounts — HubSpot US TAM (all companies, not filtered) → filters → team cards → member cards
- *     of the chosen team → the account list (cards drill it).
- *   · Deals & Activity — accounts worked / not worked in 60 days (team → members), last-quarter
- *     demos and deals (team → members → deal details), and account/contact coverage per member.
+ *   · Accounts — HubSpot US TAM (all companies, not filtered) → filters → "By team" + "Members" tables
+ *     (accounts by type + worked / not worked in 60 days) → 8 cards → the account list (everything drills it).
+ *   · Deals & Pipeline — last-quarter demos and deals (by team, by stage) → team members → each member's
+ *     deals grouped by stage → a per-member funnel of how they use their own accounts and contacts.
  * Data: /api/accounts-overview (isolated sdr_ao_* tables, computed server-side in memory).
  * Filters live in the URL so every view is shareable.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, Building2, CalendarCheck, ChevronLeft, ChevronRight, Download, ExternalLink, Globe2, Loader2, RotateCcw, Search,
-  SlidersHorizontal, Target, UserRound, Users, X, type LucideIcon,
+  Activity, Building2, CalendarCheck, ChevronDown, ChevronLeft, ChevronRight, Download, ExternalLink, Globe2, Loader2, RotateCcw, Search,
+  Layers, SlidersHorizontal, Target, UserRound, Users, X, type LucideIcon,
 } from "lucide-react";
 import AppNav from "../AppNav";
 import { Viewer } from "../../lib/spine/types";
@@ -72,7 +72,7 @@ function fromUrl(sp: URLSearchParams): UiFilters {
 const RANGE: [string, string][] = [["7d", "Last 7 days"], ["30d", "Last 30 days"], ["60d", "Last 60 days"], ["90d", "Last 90 days"], ["custom", "Custom range"]];
 const ACT_TYPES: [string, string][] = [["call", "Calls"], ["email", "Emails"], ["meeting", "Meetings"], ["note", "Notes"], ["task", "Tasks"]];
 const sel = "w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-primary/30";
-/** List titles for drills opened from the Deals & Activity tab (not one of the 8 cards). */
+/** List titles for drills opened from the Deals & Pipeline tab (not one of the 8 cards). */
 const DRILL_LABEL: Record<string, string> = {
   contacted: "Contacted in the date range", not_contacted: "Not contacted in the date range",
   "icp:yes": "ICP accounts", icp_contacted: "ICP accounts contacted",
@@ -206,11 +206,11 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
     return `/api/accounts-overview?${p}`;
   }, [qs, card, dq]);
 
-  /** Jump from a Deals & Activity number to the matching account list. */
-  const openAccounts = (owner: string, team: string, drill: string) => {
-    setF((cur) => ({ ...cur, owner, team: team || cur.team }));
+  /** Jump from a Deals & Pipeline number to the matching account list (same date range as the number). */
+  const openAccounts = (owner: string, team: string, drill: string, preset?: string) => {
+    setF((cur) => ({ ...cur, owner, team: team || cur.team, ...(preset && cur.ppreset === "all" ? { ppreset: preset } : {}) }));
     setCard(drill); setQ(""); setPageNo(1); setTab("accounts");
-    window.scrollTo({ top: 0 });
+    setTimeout(() => document.getElementById("ao-account-list")?.scrollIntoView({ behavior: "smooth", block: "start" }), 400);
   };
 
   const shown = data && data.__tab === tab ? data : null;
@@ -245,7 +245,7 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
         </div>
 
         <div className="mb-3 flex items-center gap-1 rounded-xl border border-line bg-surface/80 p-1 shadow-card backdrop-blur">
-          {([["accounts", "Accounts", Building2], ["activity", "Deals & Activity", Activity]] as const).map(([k, l, Icon]) => (
+          {([["accounts", "Accounts", Building2], ["activity", "Deals & Pipeline", Activity]] as const).map(([k, l, Icon]) => (
             <button key={k} onClick={() => setTab(k)}
               className={cn("inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-semibold transition",
                 tab === k ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md" : "text-ink-muted hover:bg-surface-muted hover:text-ink")}>
@@ -426,15 +426,15 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
       <SectionTitle icon={SlidersHorizontal} tone="slate" sub="Everything below follows these filters">Filters</SectionTitle>
       {filterBar}
 
-      {/* 3–4. Teams and the chosen team's members — compact tables, side by side */}
-      <SectionTitle icon={Users} tone="violet" sub="Click a team to see its members · click a number to list those accounts">
+      {/* 3–4. Teams and the chosen team's members — accounts by type + worked in the last 60 days */}
+      <SectionTitle icon={Users} tone="violet" sub="Worked = HubSpot Last Activity Date in the last 60 days · click a number to list those accounts">
         Teams &amp; members
       </SectionTitle>
       <TeamChips team={f.team} onTeam={(t) => onPick(t, "", "")} />
-      <div className="mt-2 grid gap-3 xl:grid-cols-[2fr_3fr]">
+      <div className="mt-2 space-y-3">
         <Card title="By team">
           <table className="w-full text-xs">
-            <thead className={THEAD}><tr><TH>Team</TH><TH right>Members</TH><TH right>Accounts</TH><TH right>Group</TH><TH right>Single Fr.</TH><TH right>Single Ind.</TH></tr></thead>
+            <thead className={THEAD}><tr><TH>Team</TH><TH right>Members</TH><TH right>Accounts</TH><TH right>Group</TH><TH right>Single Fr.</TH><TH right>Single Ind.</TH><TH right>Worked &lt;60d</TH><TH right>Not worked 60+d</TH><TH right>No activity</TH><TH right>% worked</TH></tr></thead>
             <tbody>{data.teams.map((t: any) => (
               <tr key={t.team} className={cn("border-b border-line/60", f.team === t.team && cn("font-semibold", TONE[teamTone(t.team)].soft))}>
                 <td className="px-2 py-1"><TeamName team={t.team} label={t.label} onClick={() => onTeam(t.team)} /></td>
@@ -443,6 +443,10 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
                 <td className="px-2 py-1 text-right"><Num v={t.group} onClick={() => onPick(t.team, "", "type:group")} /></td>
                 <td className="px-2 py-1 text-right"><Num v={t.single_franchise} onClick={() => onPick(t.team, "", "type:single_franchise")} /></td>
                 <td className="px-2 py-1 text-right"><Num v={t.independent} onClick={() => onPick(t.team, "", "type:independent")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.worked_60} onClick={() => onPick(t.team, "", "cstatus:active")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.not_worked_60} strong onClick={() => onPick(t.team, "", "cstatus:inactive_60plus")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.no_activity} onClick={() => onPick(t.team, "", "cstatus:no_activity")} /></td>
+                <td className="px-2 py-1 text-right"><PctBar v={t.pct_worked} /></td>
               </tr>
             ))}</tbody>
           </table>
@@ -453,7 +457,7 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
         <Card title={`Members — ${teamLabel ?? "All teams"}`}>
           <div className="max-h-[420px] overflow-auto">
             <table className="w-full text-xs">
-              <thead className={THEAD}><tr><TH>Member</TH><TH>Role</TH><TH right>Accounts</TH><TH right>Group</TH><TH right>Single Fr.</TH><TH right>Single Ind.</TH><TH right>% worked &lt;60d</TH></tr></thead>
+              <thead className={THEAD}><tr><TH>Member</TH><TH>Role</TH><TH right>Accounts</TH><TH right>Group</TH><TH right>Single Fr.</TH><TH right>Single Ind.</TH><TH right>Worked &lt;60d</TH><TH right>Not worked 60+d</TH><TH right>No activity</TH><TH right>% worked</TH></tr></thead>
               <tbody>{data.members.map((m: any) => (
                 <tr key={m.owner_id} className={cn("border-b border-line/60", f.owner === m.owner_id && cn("font-semibold", TONE[teamTone(m.team)].soft))}>
                   <td className="px-2 py-1">
@@ -467,10 +471,13 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
                   <td className="px-2 py-1 text-right"><Num v={m.group} onClick={() => onPick(null, m.owner_id, "type:group")} /></td>
                   <td className="px-2 py-1 text-right"><Num v={m.single_franchise} onClick={() => onPick(null, m.owner_id, "type:single_franchise")} /></td>
                   <td className="px-2 py-1 text-right"><Num v={m.independent} onClick={() => onPick(null, m.owner_id, "type:independent")} /></td>
-                  <td className="px-2 py-1 text-right"><PctBar v={m.total ? m.worked_60 / m.total : null} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.worked_60} onClick={() => onPick(null, m.owner_id, "cstatus:active")} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.not_worked_60} strong onClick={() => onPick(null, m.owner_id, "cstatus:inactive_60plus")} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.no_activity} onClick={() => onPick(null, m.owner_id, "cstatus:no_activity")} /></td>
+                  <td className="px-2 py-1 text-right"><PctBar v={m.pct_worked} /></td>
                 </tr>
               ))}
-              {data.members.length === 0 && <tr><td colSpan={7} className="px-2 py-6 text-center text-ink-subtle">No members match these filters.</td></tr>}</tbody>
+              {data.members.length === 0 && <tr><td colSpan={10} className="px-2 py-6 text-center text-ink-subtle">No members match these filters.</td></tr>}</tbody>
             </table>
           </div>
         </Card>
@@ -574,63 +581,27 @@ function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, open
   data: any; f: UiFilters; qs: string; filterBar: React.ReactNode;
   dealSel: { team: string; owner: string; kind: string; title: string } | null;
   setDealSel: (d: { team: string; owner: string; kind: string; title: string } | null) => void;
-  onTeam: (t: string) => void; openAccounts: (owner: string, team: string, drill: string) => void;
+  onTeam: (t: string) => void; openAccounts: (owner: string, team: string, drill: string, preset?: string) => void;
 }) {
   const qLabel = data.meta.quarter?.label ?? "last quarter";
-  const period = data.meta.period;
   const teamLabel = TEAMS.find((t) => t.value === f.team)?.label ?? "All teams";
   const showDeals = (team: string, owner: string, kind: string, title: string) => { setDealSel({ team, owner, kind, title }); };
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggle = (id: string) => setOpen((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const focusMember = (id: string) => {
+    setOpen((cur) => new Set(cur).add(id));
+    setTimeout(() => document.getElementById(`pipe-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  };
+  const pipeMembers = (data.deal_members as any[]).filter((m) => m.deals > 0);
+  const dealsOf = (id: string) => (data.deal_rows as any[]).filter((d) => d.sdr_id === id || d.owner_id === id);
+  const up = data.util_period;
+  const preset = up?.default_3m ? "3m" : undefined;
 
   return (
     <div>
       {filterBar}
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        <TeamChips team={f.team} onTeam={onTeam} />
-        <span className="text-[11px] text-ink-subtle">Activity date range: {etDay(period.from)} – {etDay(period.to - 1)}</span>
-      </div>
 
-      {/* 1. Worked in the last 60 days */}
-      <SectionTitle icon={Activity} tone="teal" sub="Based on each company's HubSpot Last Activity Date. Click a number to see those accounts.">
-        Accounts worked in the last 60 days
-      </SectionTitle>
-      <div className="grid gap-3 xl:grid-cols-[2fr_3fr]">
-        <Card title="By team">
-          <table className="w-full text-xs">
-            <thead className={THEAD}><tr><TH>Team</TH><TH right>Accounts</TH><TH right>Worked &lt;60d</TH><TH right>Not worked 60+d</TH><TH right>No activity</TH><TH right>% worked</TH></tr></thead>
-            <tbody>{data.activity_teams.map((t: any) => (
-              <tr key={t.team} className={cn("border-b border-line/60", f.team === t.team && cn("font-semibold", TONE[teamTone(t.team)].soft))}>
-                <td className="px-2 py-1"><TeamName team={t.team} label={t.label} onClick={() => onTeam(t.team)} /></td>
-                <td className="px-2 py-1 text-right"><Num v={t.accounts} onClick={() => openAccounts("", t.team, "")} /></td>
-                <td className="px-2 py-1 text-right"><Num v={t.worked_60} onClick={() => openAccounts("", t.team, "cstatus:active")} /></td>
-                <td className="px-2 py-1 text-right"><Num v={t.not_worked_60} onClick={() => openAccounts("", t.team, "cstatus:inactive_60plus")} /></td>
-                <td className="px-2 py-1 text-right"><Num v={t.no_activity} onClick={() => openAccounts("", t.team, "cstatus:no_activity")} /></td>
-                <td className="px-2 py-1 text-right"><PctBar v={t.pct_worked} /></td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </Card>
-        <Card title={`Members — ${teamLabel}`}>
-          <div className="max-h-[420px] overflow-auto">
-            <table className="w-full text-xs">
-              <thead className={THEAD}><tr><TH>Member</TH><TH>Role</TH><TH right>Accounts</TH><TH right>Worked &lt;60d</TH><TH right>Not worked 60+d</TH><TH right>No activity</TH><TH right>% worked</TH></tr></thead>
-              <tbody>{data.activity_members.map((m: any) => (
-                <tr key={m.owner_id} className="border-b border-line/60">
-                  <td className="px-2 py-1"><TeamName team={m.team} label={m.name} />{!m.in_team && m.owner_id !== "none" && <span className="ml-1 text-[10px] text-ink-subtle">(not in team)</span>}</td>
-                  <td className="px-2 py-1"><RoleChip role={m.role} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={m.accounts} onClick={() => openAccounts(m.owner_id, "", "")} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={m.worked_60} onClick={() => openAccounts(m.owner_id, "", "cstatus:active")} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={m.not_worked_60} strong onClick={() => openAccounts(m.owner_id, "", "cstatus:inactive_60plus")} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={m.no_activity} onClick={() => openAccounts(m.owner_id, "", "cstatus:no_activity")} /></td>
-                  <td className="px-2 py-1 text-right"><PctBar v={m.pct_worked} /></td>
-                </tr>
-              ))}
-              {data.activity_members.length === 0 && <tr><td colSpan={7} className="px-2 py-6 text-center text-ink-subtle">No members in these filters.</td></tr>}</tbody>
-            </table>
-          </div>
-        </Card>
-      </div>
-
-      {/* 2. Demos and deals — last quarter */}
+      {/* 1. Demos & deals — last completed quarter */}
       <SectionTitle icon={CalendarCheck} tone="sky" sub="Only last-quarter deals are stored. Deals follow the Team and Team member filters. Click a number for the deal details.">
         Demos &amp; deals — {qLabel}
       </SectionTitle>
@@ -639,49 +610,57 @@ function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, open
         <Stat tone="emerald" label="Demos conducted" value={fmt(data.deal_totals.conducted)} sub="Deal reached Demo Done / Accepted / In Discussion" onClick={() => showDeals(f.team, f.owner, "conducted", `Demos conducted — ${teamLabel}`)} />
         <Stat tone="violet" label="Deals in the quarter" value={fmt(data.deal_totals.deals)} sub="Created, booked or demo done in the quarter" onClick={() => showDeals(f.team, f.owner, "all", `All deals — ${teamLabel}`)} />
       </div>
-      <div className="mt-3 grid gap-3 xl:grid-cols-[2fr_3fr]">
-        <div className="space-y-3">
-          <Card title="By team">
+      <div className="mt-3 grid gap-3 xl:grid-cols-2">
+        <Card title="By team">
+          <table className="w-full text-xs">
+            <thead className={THEAD}><tr><TH>Team</TH><TH right>Demos booked</TH><TH right>Demos conducted</TH><TH right>Deals</TH></tr></thead>
+            <tbody>{data.deal_teams.map((t: any) => (
+              <tr key={t.team} className={cn("border-b border-line/60", f.team === t.team && cn("font-semibold", TONE[teamTone(t.team)].soft))}>
+                <td className="px-2 py-1"><TeamName team={t.team} label={t.label} onClick={() => onTeam(t.team)} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.booked} onClick={() => showDeals(t.team, "", "booked", `Demos booked — ${t.label}`)} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.conducted} onClick={() => showDeals(t.team, "", "conducted", `Demos conducted — ${t.label}`)} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.deals} onClick={() => showDeals(t.team, "", "all", `All deals — ${t.label}`)} /></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </Card>
+        <Card title={`Deals by current stage — ${teamLabel}`}>
+          {data.deal_stages.length === 0 ? <p className="text-xs text-ink-subtle">No deals in the quarter for these filters.</p> : (
             <table className="w-full text-xs">
-              <thead className={THEAD}><tr><TH>Team</TH><TH right>Demos booked</TH><TH right>Demos conducted</TH><TH right>Deals</TH></tr></thead>
-              <tbody>{data.deal_teams.map((t: any) => (
-                <tr key={t.team} className={cn("border-b border-line/60", f.team === t.team && cn("font-semibold", TONE[teamTone(t.team)].soft))}>
-                  <td className="px-2 py-1"><TeamName team={t.team} label={t.label} onClick={() => onTeam(t.team)} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={t.booked} onClick={() => showDeals(t.team, "", "booked", `Demos booked — ${t.label}`)} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={t.conducted} onClick={() => showDeals(t.team, "", "conducted", `Demos conducted — ${t.label}`)} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={t.deals} onClick={() => showDeals(t.team, "", "all", `All deals — ${t.label}`)} /></td>
-                </tr>
-              ))}</tbody>
+              <tbody>{data.deal_stages.map((st: any) => {
+                const max = Math.max(...data.deal_stages.map((x: any) => x.count));
+                return (
+                  <tr key={st.key} className="border-b border-line/60">
+                    <td className="w-40 px-2 py-1">{st.label}</td>
+                    <td className="px-2 py-1"><div className={cn("h-2.5 rounded-full bg-gradient-to-r", TONE.sky.bar)} style={{ width: `${(st.count / max) * 100}%` }} /></td>
+                    <td className="w-14 px-2 py-1 text-right font-mono">{fmt(st.count)}</td>
+                  </tr>
+                );
+              })}</tbody>
             </table>
-          </Card>
-          <Card title={`Pipeline by current stage — ${teamLabel}`}>
-            {data.deal_stages.length === 0 ? <p className="text-xs text-ink-subtle">No deals in the quarter for these filters.</p> : (
-              <table className="w-full text-xs">
-                <tbody>{data.deal_stages.map((s: any) => {
-                  const max = Math.max(...data.deal_stages.map((x: any) => x.count));
-                  return (
-                    <tr key={s.key} className="border-b border-line/60">
-                      <td className="w-40 px-2 py-1">{s.label}</td>
-                      <td className="px-2 py-1"><div className={cn("h-2.5 rounded-full bg-gradient-to-r", TONE.sky.bar)} style={{ width: `${(s.count / max) * 100}%` }} /></td>
-                      <td className="w-14 px-2 py-1 text-right font-mono">{fmt(s.count)}</td>
-                    </tr>
-                  );
-                })}</tbody>
-              </table>
-            )}
-          </Card>
-        </div>
+          )}
+        </Card>
+      </div>
+      {dealSel && <DealList sel={dealSel} qs={qs} onClose={() => setDealSel(null)} />}
+
+      {/* 2. Team selection + members */}
+      <SectionTitle icon={Users} tone="violet" sub="Click a member to open their pipeline below">Team members — {teamLabel}</SectionTitle>
+      <TeamChips team={f.team} onTeam={onTeam} />
+      <div className="mt-2">
         <Card title={`Members — ${teamLabel}`}>
-          <div className="max-h-[520px] overflow-auto">
+          <div className="max-h-[420px] overflow-auto">
             <table className="w-full text-xs">
               <thead className={THEAD}><tr><TH>Member</TH><TH>Role</TH><TH right>Demos booked</TH><TH right>Demos conducted</TH><TH right>Deals in their name</TH></tr></thead>
               <tbody>{data.deal_members.map((m: any) => (
                 <tr key={m.owner_id} className="border-b border-line/60">
-                  <td className="px-2 py-1"><TeamName team={m.team} label={m.name} />{!m.in_team && <span className="ml-1 text-[10px] text-ink-subtle">(not in team)</span>}</td>
+                  <td className="px-2 py-1">
+                    <TeamName team={m.team} label={m.name} onClick={m.deals ? () => focusMember(m.owner_id) : undefined} />
+                    {!m.in_team && <span className="ml-1 text-[10px] text-ink-subtle">(not in team)</span>}
+                  </td>
                   <td className="px-2 py-1"><RoleChip role={m.role} /></td>
                   <td className="px-2 py-1 text-right"><Num v={m.booked} onClick={() => showDeals(f.team, m.owner_id, "booked", `Demos booked by ${m.name}`)} /></td>
                   <td className="px-2 py-1 text-right"><Num v={m.conducted} onClick={() => showDeals(f.team, m.owner_id, "conducted", `Demos conducted by ${m.name}`)} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={m.deals} strong onClick={() => showDeals(f.team, m.owner_id, "all", `Deals of ${m.name}`)} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.deals} strong onClick={() => focusMember(m.owner_id)} /></td>
                 </tr>
               ))}
               {data.deal_members.length === 0 && <tr><td colSpan={5} className="px-2 py-6 text-center text-ink-subtle">No deals in the quarter for these filters.</td></tr>}</tbody>
@@ -690,43 +669,125 @@ function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, open
           <p className="mt-2 text-[11px] text-ink-subtle">Demos booked are credited to the deal&apos;s SDR (SDR Owner); demos conducted to the deal owner (the AE). Deals in their name = either.</p>
         </Card>
       </div>
-      {dealSel && <DealList sel={dealSel} qs={qs} onClose={() => setDealSel(null)} />}
 
-      {/* 3. Account & contact coverage */}
-      <SectionTitle icon={Target} tone="rose" sub="Each member's OWN accounts, within the activity date range">
+      {/* 3. Pipeline of the chosen team — every member, their deals grouped by stage */}
+      <SectionTitle icon={Layers} tone="emerald" sub={`${qLabel} deals per member, grouped by current stage · click a name to open`}>
+        Pipeline — {teamLabel}
+      </SectionTitle>
+      <div className="mb-2 flex gap-2 text-[11px]">
+        <button onClick={() => setOpen(new Set(pipeMembers.map((m) => m.owner_id)))} className="rounded-lg border border-line bg-surface px-2 py-1 text-ink-muted hover:text-ink">Open all</button>
+        <button onClick={() => setOpen(new Set())} className="rounded-lg border border-line bg-surface px-2 py-1 text-ink-muted hover:text-ink">Close all</button>
+      </div>
+      <div className="space-y-2">
+        {pipeMembers.map((m) => {
+          const rows = dealsOf(m.owner_id);
+          const stages = [...new Map(rows.map((d) => [d.stage_key, { key: d.stage_key, label: d.stage, rank: d.stage_rank }])).values()]
+            .sort((a, b) => a.rank - b.rank);
+          const isOpen = open.has(m.owner_id);
+          return (
+            <div key={m.owner_id} id={`pipe-${m.owner_id}`} className="scroll-mt-4 overflow-hidden rounded-card border border-line bg-surface shadow-card">
+              <button onClick={() => toggle(m.owner_id)} className="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left hover:bg-surface-muted/50">
+                <ChevronDown className={cn("h-4 w-4 text-ink-subtle transition", !isOpen && "-rotate-90")} />
+                <TeamName team={m.team} label={m.name} />
+                <RoleChip role={m.role} />
+                <span className="text-[11px] text-ink-subtle">{fmt(rows.length)} deal{rows.length === 1 ? "" : "s"}</span>
+                <span className="ml-auto flex flex-wrap gap-1">
+                  {stages.map((st) => (
+                    <span key={st.key} className="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] text-ink-muted">
+                      {st.label} <b className="font-mono text-ink">{rows.filter((d) => d.stage_key === st.key).length}</b>
+                    </span>
+                  ))}
+                </span>
+              </button>
+              {isOpen && (
+                <div className="overflow-x-auto border-t border-line">
+                  <table className="w-full text-xs">
+                    <thead className={THEAD}><tr><TH>Deal</TH><TH>Company</TH><TH right>Amount</TH><TH>Their role</TH><TH>SDR</TH><TH>Deal owner</TH><TH>Created</TH><TH>Demo booked</TH><TH>Demo done</TH><TH>Close date</TH></tr></thead>
+                    <tbody>{stages.map((st) => (
+                      <Fragment key={st.key}>
+                        <tr className="bg-surface-muted/60"><td colSpan={10} className="px-2 py-1 text-[11px] font-bold text-ink">{st.label} · {rows.filter((d) => d.stage_key === st.key).length}</td></tr>
+                        {rows.filter((d) => d.stage_key === st.key).map((d) => (
+                          <tr key={d.id} className="border-b border-line/60">
+                            <td className="whitespace-nowrap px-2 py-1"><a href={dealUrl(d.id)} target="_blank" rel="noreferrer" className="font-semibold text-ink hover:text-primary">{d.name}</a></td>
+                            <td className="whitespace-nowrap px-2 py-1">{d.company_id ? <a href={companyUrl(d.company_id)} target="_blank" rel="noreferrer" className="hover:text-primary">{d.company_name ?? d.company_id}</a> : <span className="text-ink-subtle">No company</span>}</td>
+                            <td className="px-2 py-1 text-right font-mono">{d.amount == null ? "—" : `$${fmt(Math.round(d.amount))}`}</td>
+                            <td className="px-2 py-1 text-[11px]">{d.sdr_id === m.owner_id && d.owner_id === m.owner_id ? "SDR + owner" : d.sdr_id === m.owner_id ? "SDR" : "Deal owner"}</td>
+                            <td className="whitespace-nowrap px-2 py-1">{d.sdr}</td>
+                            <td className="whitespace-nowrap px-2 py-1">{d.owner}</td>
+                            <td className="whitespace-nowrap px-2 py-1">{etDay(d.created_ms)}</td>
+                            <td className="whitespace-nowrap px-2 py-1">{etDay(d.booked_ms)}</td>
+                            <td className="whitespace-nowrap px-2 py-1">{etDay(d.conducted_ms)}</td>
+                            <td className="whitespace-nowrap px-2 py-1">{etDay(d.close_ms)}</td>
+                          </tr>
+                        ))}
+                      </Fragment>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {pipeMembers.length === 0 && <p className="text-xs text-ink-subtle">No deals in the quarter for these filters.</p>}
+      </div>
+
+      {/* 4. Are members using their accounts and contacts? — a funnel per member */}
+      <SectionTitle icon={Target} tone="rose"
+        sub={`Each member's OWN accounts · ${etDay(up.from)} – ${etDay(up.to - 1)}${up.default_3m ? " (last 3 months — set an Activity date range to change it)" : ""} · demos are ${qLabel}`}>
         Are members using their accounts and contacts?
       </SectionTitle>
       <Card title={`Members — ${teamLabel}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
-            <thead className={THEAD}><tr>
-              <TH>Member</TH><TH>Role</TH><TH right>Accounts</TH><TH right>Accounts contacted</TH><TH right>Not contacted</TH>
-              <TH right>Contacts</TH><TH right>Contacts reached</TH><TH right>Not reached</TH>
-              <TH right>ICP accounts</TH><TH right>ICP contacted</TH><TH right>Avg calls / ICP</TH><TH right>Avg emails / ICP</TH>
-            </tr></thead>
+            <thead className={THEAD}>
+              <tr className="text-[9px] uppercase tracking-wide text-ink-subtle">
+                <th colSpan={2} />
+                <th colSpan={3} className="border-l border-line px-2 pt-1 text-center">Their accounts</th>
+                <th colSpan={3} className="border-l border-line px-2 pt-1 text-center">Contacts</th>
+                <th colSpan={4} className="border-l border-line px-2 pt-1 text-center">ICP accounts</th>
+                <th colSpan={4} className="border-l border-line px-2 pt-1 text-center">Meetings &amp; demos</th>
+                <th className="border-l border-line" />
+              </tr>
+              <tr>
+                <TH>Member</TH><TH>Role</TH>
+                <TH right>Owned</TH><TH right>Worked</TH><TH right>% worked</TH>
+                <TH right>Contacts</TH><TH right>Reached</TH><TH right>Connected</TH>
+                <TH right>ICP</TH><TH right>Worked</TH><TH right>Connected</TH><TH right>Meeting / demo</TH>
+                <TH right>Meetings booked</TH><TH right>Meetings logged</TH><TH right>Demos booked</TH><TH right>Demos done</TH>
+                <TH right>Touches / worked acct</TH>
+              </tr>
+            </thead>
             <tbody>{data.utilization.map((m: any) => (
               <tr key={m.owner_id} className="border-b border-line/60">
                 <td className="px-2 py-1"><TeamName team={m.team} label={m.name} />{!m.in_team && <span className="ml-1 text-[10px] text-ink-subtle">(not in team)</span>}</td>
                 <td className="px-2 py-1"><RoleChip role={m.role} /></td>
-                <td className="px-2 py-1 text-right"><Num v={m.accounts} onClick={() => openAccounts(m.owner_id, "", "")} /></td>
-                <td className="px-2 py-1 text-right"><Num v={m.accounts_contacted} onClick={() => openAccounts(m.owner_id, "", "contacted")} /></td>
-                <td className="px-2 py-1 text-right"><Num v={m.accounts_not_contacted} strong onClick={() => openAccounts(m.owner_id, "", "not_contacted")} /></td>
-                <td className="px-2 py-1 text-right font-mono">{fmt(m.contacts)}</td>
+                <td className="border-l border-line/60 px-2 py-1 text-right"><Num v={m.accounts} onClick={() => openAccounts(m.owner_id, "", "", preset)} /></td>
+                <td className="px-2 py-1 text-right"><Num v={m.worked} onClick={() => openAccounts(m.owner_id, "", "contacted", preset)} /></td>
+                <td className="px-2 py-1 text-right"><PctBar v={m.pct_worked} /></td>
+                <td className="border-l border-line/60 px-2 py-1 text-right font-mono">{fmt(m.contacts)}</td>
                 <td className="px-2 py-1 text-right font-mono">{fmt(m.contacts_reached)}</td>
-                <td className="px-2 py-1 text-right font-mono font-semibold text-rose-500">{fmt(m.contacts_not_reached)}</td>
-                <td className="px-2 py-1 text-right"><Num v={m.icp_accounts} onClick={() => openAccounts(m.owner_id, "", "icp:yes")} /></td>
-                <td className="px-2 py-1 text-right"><Num v={m.icp_contacted} onClick={() => openAccounts(m.owner_id, "", "icp_contacted")} /></td>
-                <td className="px-2 py-1 text-right font-mono">{m.avg_calls_per_icp == null ? "—" : m.avg_calls_per_icp.toFixed(1)}</td>
-                <td className="px-2 py-1 text-right font-mono">{m.avg_emails_per_icp == null ? "—" : m.avg_emails_per_icp.toFixed(1)}</td>
+                <td className="px-2 py-1 text-right font-mono">{fmt(m.contacts_connected)}</td>
+                <td className="border-l border-line/60 px-2 py-1 text-right"><Num v={m.icp_accounts} onClick={() => openAccounts(m.owner_id, "", "icp:yes", preset)} /></td>
+                <td className="px-2 py-1 text-right"><Num v={m.icp_worked} onClick={() => openAccounts(m.owner_id, "", "icp_contacted", preset)} /></td>
+                <td className="px-2 py-1 text-right font-mono">{fmt(m.icp_connected)}</td>
+                <td className="px-2 py-1 text-right font-mono font-semibold">{fmt(m.icp_meeting_or_demo)}</td>
+                <td className="border-l border-line/60 px-2 py-1 text-right font-mono">{fmt(m.meetings_booked)}</td>
+                <td className="px-2 py-1 text-right font-mono">{fmt(m.meetings_logged)}</td>
+                <td className="px-2 py-1 text-right font-mono font-semibold text-sky-500">{fmt(m.demos_booked)}</td>
+                <td className="px-2 py-1 text-right font-mono font-semibold text-emerald-500">{fmt(m.demos_done)}</td>
+                <td className="border-l border-line/60 px-2 py-1 text-right font-mono">{m.touches_per_worked == null ? "—" : m.touches_per_worked.toFixed(1)}</td>
               </tr>
             ))}
-            {data.utilization.length === 0 && <tr><td colSpan={12} className="px-2 py-6 text-center text-ink-subtle">No members in these filters.</td></tr>}</tbody>
+            {data.utilization.length === 0 && <tr><td colSpan={17} className="px-2 py-6 text-center text-ink-subtle">No members in these filters.</td></tr>}</tbody>
           </table>
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-ink-subtle">
-          Accounts = companies the member owns. Contacted = at least one call or email (by anyone) in the date range.
-          Contacts reached = contacts on their accounts who were called or emailed. Avg calls / emails per ICP = the member&apos;s
-          own calls / emails on their ICP accounts ÷ their ICP accounts.
+          Everything is about the accounts the member OWNS (HubSpot company owner), whoever did the work.
+          Worked = at least one call or email in the date range. Reached = contacts called or emailed; Connected = a live
+          conversation (the 11 connected call outcomes), a meeting or an email reply. ICP Meeting / demo = ICP accounts with a
+          meeting booked on a call, a meeting logged, or a demo booked. Meetings booked = calls logged with the outcome
+          Meeting Scheduled / Rescheduled; Meetings logged = HubSpot meeting records (their outcome is rarely filled in).
+          Demos booked / done = Auto-Pipeline deals on their accounts in {qLabel}.
         </p>
       </Card>
     </div>
