@@ -86,6 +86,8 @@ alter table sdr_ao_deals add column if not exists amount     numeric;
 alter table sdr_ao_deals add column if not exists created_ms bigint;
 alter table sdr_ao_deals add column if not exists close_ms   bigint;
 alter table sdr_ao_deals add column if not exists team       text;  -- company team, else SDR's / owner's team
+-- 2026-10-19: "#Potential Rooftops" for the account list.
+alter table sdr_ao_companies add column if not exists potential_rooftops integer;
 
 create table if not exists sdr_ao_sync_state (
   id         integer primary key check (id = 1),

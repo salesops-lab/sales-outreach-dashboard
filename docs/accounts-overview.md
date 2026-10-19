@@ -33,6 +33,7 @@ Pass 1 = CRM reporting (SQL group-bys). Pass 2 = CRM Search API `total`s. They m
 | Company last activity | company `notes_last_updated` ("Last Activity Date", HubSpot-maintained) | |
 | Last contacted | company `notes_last_contacted` (HubSpot-maintained, excludes notes) | |
 | Rooftop last activity | company `rooftop_last_activity` (custom) | null ≠ never contacted |
+| #Potential Rooftops | company `potential_rooftops` (custom number) | group drawer shows the highest value in the group |
 | Contact count reference | company `num_associated_contacts` | reconciled against association reads |
 | Country | company `country_dropdown` ("Country Dropdown"), else free-text `country` | dropdown is far more complete (119,645 "United States" vs ~67k free-text US variants) |
 | **US TAM** | company `country_dropdown` = United States | 119,645 on 2026-10-17 — matches the old TAM dashboard |
@@ -55,6 +56,13 @@ Pass 1 = CRM reporting (SQL group-bys). Pass 2 = CRM Search API `total`s. They m
 4. **Team members** — one card per HubSpot team member (role from the TrackerAI roster: Manager /
    SDR / AE) plus anyone else who owns accounts in the team, with their account counts. Click → list.
 5. **Accounts** — 8 cards that drill one searchable, sortable list (CSV, click a company for detail).
+   Default columns: Company, Team, Account owner, Account type, Type of Dealership, GD Name,
+   #Potential Rooftops, Last Activity Date, Rooftop Last Activity, State, Calls, Emails, Touchpoints.
+   **Manage columns** shows / hides / re-orders them (more available: City, Country, ICP, Last
+   Contacted, Connected, Meetings, Demos, Contacts, Domain, Record ID) — remembered per browser.
+   Clicking a **GD Name** opens the group drawer: every rooftop with that GD Name in the four teams
+   (other filters ignored), #Potential Rooftops, franchise / independent split, 60-day work, latest
+   dates, teams / owners / states and activity.
 
 **Deals & Activity tab**:
 1. **Accounts worked in the last 60 days** — per team and per member: accounts, worked < 60 days,

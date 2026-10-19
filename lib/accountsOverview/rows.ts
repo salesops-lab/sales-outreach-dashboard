@@ -34,6 +34,7 @@ export function companyRow(id: string, p: Props): AoCompanyRow {
     last_activity_ms: msOf(p.notes_last_updated), last_contacted_ms: msOf(p.notes_last_contacted),
     rooftop_last_activity_ms: msOf(p.rooftop_last_activity),
     num_contacts: intOf(p.num_associated_contacts), hs_lastmodified_ms: msOf(p.hs_lastmodifieddate),
+    potential_rooftops: intOf(p.potential_rooftops),
   };
 }
 

@@ -82,8 +82,9 @@ const etStamp = (ms: unknown) => (typeof ms === "number"
 export const CSV_COLUMNS: [string, string, ("ms" | "list")?][] = [
   ["HubSpot Record ID", "id"], ["Company", "name"], ["Domain", "domain"], ["Country", "country"], ["State", "state"], ["City", "city"],
   ["Team", "team"], ["Account Owner", "owner_name"], ["Worked By (period)", "activity_owners", "list"],
-  ["Account Type", "type"], ["GD Name", "gd_name"], ["Company ICP", "icp"],
+  ["Account Type", "type"], ["Type of Dealership", "dealer_type"], ["GD Name", "gd_name"], ["#Potential Rooftops", "potential_rooftops"], ["Company ICP", "icp"],
   ["Last Activity Date (ET)", "company_last_activity_ms", "ms"], ["Days Since Last Activity", "company_days"],
+  ["Rooftop Last Activity (ET)", "rooftop_last_activity_ms", "ms"], ["Days Since Rooftop Last Activity", "rooftop_days"],
   ["Never Contacted", "never_contacted"],
   ["Calls", "calls"], ["Connected", "connected"], ["Emails", "emails"], ["Meetings", "meetings"],
   ["Demos Booked", "demos_booked"], ["Touchpoints", "touchpoints"], ["Contacts", "contacts"],

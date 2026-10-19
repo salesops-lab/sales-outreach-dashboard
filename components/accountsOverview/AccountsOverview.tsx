@@ -16,6 +16,8 @@ import { companyUrl, dealUrl } from "../../config/hubspot";
 import { cn, SortHeader } from "../ui";
 import { Card, etDay, etTime, fmt, Note, pct, StatusChip, TH, TYPE_LABEL } from "./parts";
 import AccountDetail from "./AccountDetail";
+import GroupDetail from "./GroupDetail";
+import { ALL_COLUMNS, ManageColumns, useColumns } from "./columns";
 
 const TEAMS = [
   { value: "Neelima", label: "Neelima Team" },
@@ -125,6 +127,7 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<string | null>(null);
+  const [group, setGroup] = useState<string | null>(null);
   const [dealSel, setDealSel] = useState<{ team: string; owner: string; kind: string; title: string } | null>(null);
 
   useEffect(() => {
@@ -250,13 +253,14 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
             onCard={(k) => { setCard(k); setPageNo(1); }}
             onQ={(v) => { setQ(v); setPageNo(1); }}
             onSort={(k) => { if (sort === k) setDir(dir === "asc" ? "desc" : "asc"); else { setSort(k); setDir(k === "name" ? "asc" : "desc"); } setPageNo(1); }}
-            onPage={setPageNo} onOpen={setDetail} />
+            onPage={setPageNo} onOpen={setDetail} onGroup={setGroup} />
         )}
         {shown && tab === "activity" && (
           <ActivityTab data={shown} f={f} qs={qs} filterBar={filterBar} dealSel={dealSel} setDealSel={setDealSel}
             onTeam={(t) => set({ team: t })} openAccounts={openAccounts} />
         )}
       </main>
+      {group && <GroupDetail gd={group} qs={qs} onClose={() => setGroup(null)} onOpen={(id) => setDetail(id)} />}
       {detail && <AccountDetail id={detail} qs={qs} th={TH60} onClose={() => setDetail(null)} />}
     </div>
   );
@@ -364,19 +368,18 @@ function Stat({ label, value, sub, active, onClick }: { label: string; value: st
 }
 
 // ── Accounts tab ─────────────────────────────────────────────────────────────
-function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, onOwner, onCard, onQ, onSort, onPage, onOpen }: {
+function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, onOwner, onCard, onQ, onSort, onPage, onOpen, onGroup }: {
   data: any; f: UiFilters; filterBar: React.ReactNode; card: string; q: string; sort: string; dir: "asc" | "desc"; csvHref: string;
   onTeam: (t: string) => void; onOwner: (o: string) => void; onCard: (k: string) => void; onQ: (v: string) => void;
-  onSort: (k: string) => void; onPage: (p: number) => void; onOpen: (id: string) => void;
+  onSort: (k: string) => void; onPage: (p: number) => void; onOpen: (id: string) => void; onGroup: (gd: string) => void;
 }) {
   const tam = data.tam;
   const share = (n: number) => (tam?.total ? `${((n / tam.total) * 100).toFixed(1)}% of US accounts` : "");
   const list = data.list;
   const teamLabel = TEAMS.find((t) => t.value === f.team)?.label;
-  const cols: [string, string, boolean?][] = [
-    ["name", "Company"], ["team", "Team"], ["owner_name", "Account owner"], ["type", "Type"], ["gd_name", "GD Name"],
-    ["state", "State"], ["company_days", "Last activity"], ["calls", "Calls", true], ["emails", "Emails", true], ["touchpoints", "Touchpoints", true],
-  ];
+  const [colKeys, setColKeys] = useColumns();
+  const cols = colKeys.map((k) => ALL_COLUMNS.find((c) => c.key === k)!).filter(Boolean);
+  const ctx = { onOpen, onGroup };
   return (
     <div>
       {/* 1. HubSpot TAM — every US company, never filtered */}
@@ -455,32 +458,21 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
                 <input value={q} onChange={(e) => onQ(e.target.value)} placeholder="Search company, domain or ID"
                   className="w-64 rounded-lg border border-line bg-surface py-1.5 pl-7 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
+              <ManageColumns cols={colKeys} onChange={setColKeys} />
               <a href={csvHref} className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-fg"><Download className="h-3.5 w-3.5" />CSV</a>
             </div>
           }>
-          <div className="overflow-x-auto rounded-lg border border-line">
+          <div className="max-h-[70vh] overflow-auto rounded-lg border border-line">
             <table className="w-full text-xs">
-              <thead className="bg-surface-muted/60">
-                <tr>{cols.map(([k, l, right]) => (
-                  <SortHeader key={k} active={sort === k} dir={dir} onClick={() => onSort(k)} right={right}><span className="text-[10px] uppercase tracking-wide">{l}</span></SortHeader>
+              <thead className="sticky top-0 z-10 bg-surface-muted">
+                <tr>{cols.map((c) => (
+                  <SortHeader key={c.key} active={sort === c.key} dir={dir} onClick={() => onSort(c.key)} right={c.right}><span className="whitespace-nowrap text-[10px] uppercase tracking-wide">{c.label}</span></SortHeader>
                 ))}</tr>
               </thead>
               <tbody>
                 {list.rows.map((r: any) => (
                   <tr key={r.id} className="border-t border-line hover:bg-surface-muted/40">
-                    <td className="px-3 py-1.5">
-                      <button onClick={() => onOpen(r.id)} className="text-left font-semibold text-ink hover:text-primary">{r.name}</button>
-                      <a href={companyUrl(r.id)} target="_blank" rel="noreferrer" title="Open in HubSpot" className="ml-1 inline-block text-ink-subtle hover:text-primary"><ExternalLink className="h-3 w-3" /></a>
-                    </td>
-                    <td className="px-3 py-1.5">{r.team ?? "—"}</td>
-                    <td className="px-3 py-1.5">{r.owner_name}</td>
-                    <td className="px-3 py-1.5">{TYPE_LABEL[r.type]}</td>
-                    <td className="px-3 py-1.5">{r.gd_name ?? "—"}</td>
-                    <td className="px-3 py-1.5">{r.state ?? "—"}</td>
-                    <td className="px-3 py-1.5"><span className="mr-1">{etDay(r.company_last_activity_ms)}</span><StatusChip s={r.company_status} th={TH60} days={r.company_days} /></td>
-                    <td className="px-3 py-1.5 text-right font-mono">{fmt(r.calls)}</td>
-                    <td className="px-3 py-1.5 text-right font-mono">{fmt(r.emails)}</td>
-                    <td className="px-3 py-1.5 text-right font-mono">{fmt(r.touchpoints)}</td>
+                    {cols.map((c) => <td key={c.key} className={cn("whitespace-nowrap px-3 py-1.5", c.right && "text-right")}>{c.cell(r, ctx)}</td>)}
                   </tr>
                 ))}
                 {list.rows.length === 0 && <tr><td colSpan={cols.length} className="px-3 py-8 text-center text-ink-subtle">No accounts match.</td></tr>}
@@ -488,7 +480,7 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
             </table>
           </div>
           <div className="mt-2 flex items-center justify-between text-xs text-ink-muted">
-            <span>Calls, emails and touchpoints are within the activity date range. Click a company for full details.</span>
+            <span>Calls, emails and touchpoints are within the activity date range. Click a company or a GD Name for full details.</span>
             {list.pages > 1 && (
               <span className="inline-flex items-center gap-1">
                 <button disabled={list.page <= 1} onClick={() => onPage(list.page - 1)} className="rounded border border-line p-0.5 disabled:opacity-40"><ChevronLeft className="h-3.5 w-3.5" /></button>
