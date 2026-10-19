@@ -268,6 +268,12 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
           <AccountsTab data={shown} f={f} filterBar={filterBar} card={card} q={q} sort={sort} dir={dir} csvHref={csvHref}
             onTeam={(t) => set({ team: f.team === t ? "" : t })}
             onOwner={(o) => { set({ owner: f.owner === o ? "" : o }); setCard(""); }}
+            onPick={(team, owner, drill) => {
+              // A number in the team / member tables: narrow to that team or person + card, then show the list.
+              setF((cur) => ({ ...cur, team: team ?? cur.team, owner }));
+              setCard(drill); setPageNo(1); setDealSel(null);
+              if (drill || owner) setTimeout(() => document.getElementById("ao-account-list")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+            }}
             onCard={(k) => { setCard(k); setPageNo(1); }}
             onQ={(v) => { setQ(v); setPageNo(1); }}
             onSort={(k) => { if (sort === k) setDir(dir === "asc" ? "desc" : "asc"); else { setSort(k); setDir(k === "name" ? "asc" : "desc"); } setPageNo(1); }}
@@ -376,27 +382,23 @@ function SectionTitle({ children, sub, icon: Icon, tone = "indigo" }: { children
   );
 }
 
-function Stat({ label, value, sub, active, onClick, tone = "indigo" }: { label: string; value: string; sub?: string; active?: boolean; onClick?: () => void; tone?: Tone }) {
+function Stat({ label, value, sub, active, onClick, tone = "indigo", compact }: { label: string; value: string; sub?: string; active?: boolean; onClick?: () => void; tone?: Tone; compact?: boolean }) {
   const Tag = onClick ? "button" : "div";
   const t = TONE[tone];
   return (
-    <Tag onClick={onClick} className={cn("relative overflow-hidden rounded-card border px-3 py-2.5 text-left", t.card, t.lift, active && t.ring)}>
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-muted"><span className={cn("h-2 w-2 rounded-full", t.dot)} />{label}</div>
-      <div className={cn("mt-0.5 font-mono text-xl font-bold tabular-nums", t.text)}>{value}</div>
+    <Tag onClick={onClick} className={cn("relative overflow-hidden rounded-card border text-left", compact ? "px-2.5 py-1.5" : "px-3 py-2.5", t.card, t.lift, active && t.ring)}>
+      <div className={cn("flex items-center gap-1.5 font-semibold text-ink-muted", compact ? "text-[10px] leading-tight" : "text-[11px]")}><span className={cn("h-2 w-2 shrink-0 rounded-full", t.dot)} />{label}</div>
+      <div className={cn("mt-0.5 font-mono font-bold tabular-nums", compact ? "text-lg" : "text-xl", t.text)}>{value}</div>
       {sub && <div className="mt-0.5 text-[10px] leading-snug text-ink-subtle">{sub}</div>}
     </Tag>
   );
 }
 
-function Avatar({ name, tone }: { name: string; tone: Tone }) {
-  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "?";
-  return <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-bold", TONE[tone].soft)}>{initials}</span>;
-}
-
 // ── Accounts tab ─────────────────────────────────────────────────────────────
-function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, onOwner, onCard, onQ, onSort, onPage, onOpen, onGroup }: {
+function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, onOwner, onPick, onCard, onQ, onSort, onPage, onOpen, onGroup }: {
   data: any; f: UiFilters; filterBar: React.ReactNode; card: string; q: string; sort: string; dir: "asc" | "desc"; csvHref: string;
   onTeam: (t: string) => void; onOwner: (o: string) => void; onCard: (k: string) => void; onQ: (v: string) => void;
+  onPick: (team: string | null, owner: string, drill: string) => void;
   onSort: (k: string) => void; onPage: (p: number) => void; onOpen: (id: string) => void; onGroup: (gd: string) => void;
 }) {
   const tam = data.tam;
@@ -424,65 +426,65 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
       <SectionTitle icon={SlidersHorizontal} tone="slate" sub="Everything below follows these filters">Filters</SectionTitle>
       {filterBar}
 
-      {/* 3. Teams */}
-      <SectionTitle icon={Users} tone="violet" sub="Click a team to see its members">Teams</SectionTitle>
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-        {data.teams.map((t: any) => {
-          const tt = TONE[teamTone(t.team)];
-          return (
-          <button key={t.team} onClick={() => onTeam(t.team)}
-            className={cn("rounded-card border px-3 py-2.5 text-left", tt.card, tt.lift, f.team === t.team && tt.ring)}>
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-xs font-bold text-ink"><span className={cn("h-2.5 w-2.5 rounded-full", tt.dot)} />{t.label}</span>
-              <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", tt.soft)}>{t.members} member{t.members === 1 ? "" : "s"}</span>
-            </div>
-            <div className={cn("mt-1 font-mono text-2xl font-bold tabular-nums", tt.text)}>{fmt(t.total)}</div>
-            <div className="mt-1.5 grid grid-cols-3 gap-1 text-[11px]">
-              <div><div className="text-ink-subtle">Group</div><div className="font-mono font-semibold">{fmt(t.group)}</div></div>
-              <div><div className="text-ink-subtle">Single Fr.</div><div className="font-mono font-semibold">{fmt(t.single_franchise)}</div></div>
-              <div><div className="text-ink-subtle">Single Ind.</div><div className="font-mono font-semibold">{fmt(t.independent)}</div></div>
-            </div>
-            <div className="mt-1.5 border-t border-line pt-1 text-[10px] text-ink-subtle">
-              Accounts by owner role: {t.by_role.map((r: any) => `${r.role} ${fmt(r.accounts)}`).join(" · ")}
-            </div>
-          </button>
-          );
-        })}
-      </div>
-
-      {/* 4. Members of the chosen team */}
-      <SectionTitle icon={UserRound} tone={f.team ? teamTone(f.team) : "sky"} sub={f.team ? "Click a member to list their accounts below" : "Pick a team above to see only its members"}>
-        Team members — {teamLabel ?? "all teams"}
+      {/* 3–4. Teams and the chosen team's members — compact tables, side by side */}
+      <SectionTitle icon={Users} tone="violet" sub="Click a team to see its members · click a number to list those accounts">
+        Teams &amp; members
       </SectionTitle>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
-        {data.members.map((m: any) => (
-          <button key={m.owner_id} onClick={() => onOwner(m.owner_id)}
-            className={cn("rounded-card border border-line bg-surface p-2 text-left", TONE[teamTone(m.team)].lift,
-              f.owner === m.owner_id && TONE[teamTone(m.team)].ring, !m.in_team && "opacity-80")}>
-            <div className="flex items-center gap-2">
-              <Avatar name={m.name} tone={teamTone(m.team)} />
-              <div className="min-w-0">
-                <div className="truncate text-xs font-semibold text-ink" title={m.name}>{m.name}</div>
-                <div className="flex items-center gap-1"><RoleChip role={m.role} />
-                  <span className="truncate text-[10px] text-ink-subtle">{m.in_team ? `${m.team} Team` : m.owner_id === "none" ? "" : m.team ? `${m.team} Team member` : "not in a team"}</span></div>
-              </div>
-            </div>
-            <div className={cn("mt-1 font-mono text-lg font-bold tabular-nums", TONE[teamTone(m.team)].text)}>{fmt(m.total)}</div>
-            <div className="text-[10px] text-ink-subtle">accounts · G {fmt(m.group)} · SF {fmt(m.single_franchise)} · SI {fmt(m.independent)}</div>
-          </button>
-        ))}
-        {data.members.length === 0 && <p className="col-span-full text-xs text-ink-subtle">No members match these filters.</p>}
+      <TeamChips team={f.team} onTeam={(t) => onPick(t, "", "")} />
+      <div className="mt-2 grid gap-3 xl:grid-cols-[2fr_3fr]">
+        <Card title="By team">
+          <table className="w-full text-xs">
+            <thead className={THEAD}><tr><TH>Team</TH><TH right>Members</TH><TH right>Accounts</TH><TH right>Group</TH><TH right>Single Fr.</TH><TH right>Single Ind.</TH></tr></thead>
+            <tbody>{data.teams.map((t: any) => (
+              <tr key={t.team} className={cn("border-b border-line/60", f.team === t.team && cn("font-semibold", TONE[teamTone(t.team)].soft))}>
+                <td className="px-2 py-1"><TeamName team={t.team} label={t.label} onClick={() => onTeam(t.team)} /></td>
+                <td className="px-2 py-1 text-right font-mono">{fmt(t.members)}</td>
+                <td className="px-2 py-1 text-right"><Num v={t.total} strong onClick={() => onPick(t.team, "", "")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.group} onClick={() => onPick(t.team, "", "type:group")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.single_franchise} onClick={() => onPick(t.team, "", "type:single_franchise")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.independent} onClick={() => onPick(t.team, "", "type:independent")} /></td>
+              </tr>
+            ))}</tbody>
+          </table>
+          <p className="mt-1.5 text-[10px] text-ink-subtle">
+            Accounts by owner role — {data.teams.map((t: any) => `${t.team}: ${t.by_role.map((r: any) => `${r.role} ${fmt(r.accounts)}`).join(" · ")}`).join("  |  ")}
+          </p>
+        </Card>
+        <Card title={`Members — ${teamLabel ?? "All teams"}`}>
+          <div className="max-h-[420px] overflow-auto">
+            <table className="w-full text-xs">
+              <thead className={THEAD}><tr><TH>Member</TH><TH>Role</TH><TH right>Accounts</TH><TH right>Group</TH><TH right>Single Fr.</TH><TH right>Single Ind.</TH><TH right>% worked &lt;60d</TH></tr></thead>
+              <tbody>{data.members.map((m: any) => (
+                <tr key={m.owner_id} className={cn("border-b border-line/60", f.owner === m.owner_id && cn("font-semibold", TONE[teamTone(m.team)].soft))}>
+                  <td className="px-2 py-1">
+                    <span className="inline-flex items-center gap-1">
+                      <TeamName team={m.team} label={m.name} onClick={() => onOwner(m.owner_id)} />
+                      {!m.in_team && m.owner_id !== "none" && <span className="text-[10px] text-ink-subtle">(not in team)</span>}
+                    </span>
+                  </td>
+                  <td className="px-2 py-1"><RoleChip role={m.role} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.total} strong onClick={() => onPick(null, m.owner_id, "")} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.group} onClick={() => onPick(null, m.owner_id, "type:group")} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.single_franchise} onClick={() => onPick(null, m.owner_id, "type:single_franchise")} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.independent} onClick={() => onPick(null, m.owner_id, "type:independent")} /></td>
+                  <td className="px-2 py-1 text-right"><PctBar v={m.total ? m.worked_60 / m.total : null} /></td>
+                </tr>
+              ))}
+              {data.members.length === 0 && <tr><td colSpan={7} className="px-2 py-6 text-center text-ink-subtle">No members match these filters.</td></tr>}</tbody>
+            </table>
+          </div>
+        </Card>
       </div>
 
-      {/* 5. Accounts */}
+      {/* 5. Accounts — one compact strip of cards that narrow the list */}
       <SectionTitle icon={Building2} tone="indigo" sub="Click a card to narrow the list">Accounts</SectionTitle>
-      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
         {data.cards.map((c: any) => (
-          <Stat key={c.key} tone={CARD_TONE[c.key] ?? "indigo"} label={c.label} value={fmt(c.count)} active={card === c.key} onClick={() => onCard(c.key)}
+          <Stat key={c.key} compact tone={CARD_TONE[c.key] ?? "indigo"} label={c.label} value={fmt(c.count)} active={card === c.key} onClick={() => onCard(c.key)}
             sub={c.key === "type:group" ? `${fmt(data.unique_gds)} groups` : undefined} />
         ))}
       </div>
-      <div className="mt-2.5">
+      <div className="mt-2.5 scroll-mt-4" id="ao-account-list">
         <Card title={`${data.cards.find((c: any) => c.key === card)?.label ?? DRILL_LABEL[card] ?? "Accounts"}${f.owner ? ` · ${data.members.find((m: any) => m.owner_id === f.owner)?.name ?? ""}` : ""} — ${fmt(list.total)}`}
           right={
             <div className="flex items-center gap-2">
