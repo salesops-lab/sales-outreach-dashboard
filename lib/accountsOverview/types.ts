@@ -97,6 +97,7 @@ export interface AoSyncState {
   reconciliation: AoReconRow[];
   owners: Record<string, { name: string; active: boolean; teams?: string[]; email?: string | null }>; // teams = HubSpot team ids
   tam?: AoTam | null;
+  dataset_at?: string | null;      // when the sync last wrote the prepared dataset file
   quarter?: { from_ms: number; to_ms: number; label: string } | null; // deal window the last sync stored
   error: string | null;
 }

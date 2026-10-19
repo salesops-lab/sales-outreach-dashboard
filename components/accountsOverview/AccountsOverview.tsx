@@ -131,6 +131,7 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
   const [group, setGroup] = useState<string | null>(null);
   const [dealSel, setDealSel] = useState<{ team: string; owner: string; kind: string; title: string } | null>(null);
 
@@ -177,13 +178,17 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
     fetch(`/api/accounts-overview?${p}`, { signal: ac.signal })
       .then(async (r) => {
         const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j.error === "setup_required" ? "Data not available yet — the Accounts Overview sync has not run." : j.error || `HTTP ${r.status}`);
+        if (!r.ok) throw new Error(
+          j.error === "setup_required" ? "Data not available yet — the Accounts Overview sync has not run."
+          : j.error === "load_failed" ? `Couldn't load the data (${j.detail ?? "unknown error"}). Press Try again; if it keeps happening, send this message to the admin.`
+          : r.status === 504 ? "Loading took too long. Press Try again."
+          : j.error || `HTTP ${r.status}`);
         setData({ ...j, __tab: tab });
       })
       .catch((e) => { if (e.name !== "AbortError") setError(String(e.message ?? e)); })
       .finally(() => { if (!ac.signal.aborted) setLoading(false); });
     return () => ac.abort();
-  }, [qs, tab, ready, card, dq, sort, dir, pageNo]);
+  }, [qs, tab, ready, card, dq, sort, dir, pageNo, retry]);
 
   const meta = data?.meta;
   const opts = meta?.options;
@@ -250,7 +255,12 @@ export default function AccountsOverview({ viewer }: { viewer: Viewer }) {
           {loading && <Loader2 className="ml-auto mr-2 h-4 w-4 animate-spin text-indigo-500" />}
         </div>
 
-        {error && <div className="mb-4 rounded-card border border-warn/30 bg-warn-weak p-4 text-sm text-warn">{error}</div>}
+        {error && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-card border border-warn/30 bg-warn-weak p-4 text-sm text-warn">
+            <span>{error}</span>
+            <button onClick={() => setRetry((n) => n + 1)} className="rounded-lg bg-warn px-3 py-1.5 text-xs font-semibold text-white">Try again</button>
+          </div>
+        )}
         {(shown?.warnings ?? []).map((w: string) => <div key={w} className="mb-2"><Note tone="warn">{w}</Note></div>)}
         {!shown && !error && <div className="flex items-center gap-2 py-16 text-sm text-ink-muted"><Loader2 className="h-4 w-4 animate-spin" />Loading…</div>}
 

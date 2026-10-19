@@ -1,5 +1,6 @@
 /** Accounts Overview — sdr_ao_* Postgres I/O (server-only: service role). Isolated from the main
  *  spine tables; nothing here reads or writes sdr_companies/sdr_activities/sdr_snapshots. */
+import { gunzipSync, gzipSync } from "node:zlib";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../supabase/admin";
 import { AoActivityRow, AoCompanyRow, AoContactRow, AoDealRow, AoSyncState } from "./types";
@@ -109,4 +110,31 @@ export async function saveAoState(patch: Partial<AoSyncState>) {
   const cur = await loadAoState().catch(() => EMPTY_STATE);
   const { error } = await sb().from("sdr_ao_sync_state").upsert({ id: 1, state: { ...cur, ...patch }, updated_at: new Date().toISOString() }, { onConflict: "id" });
   if (error) throw new Error(`[ao] save state: ${error.message}`);
+}
+
+// ── prepared dataset file (fast path for the page) ─────────────────────────────
+// Reading ~210k rows through PostgREST on every cold start was too slow for the 60 s serverless
+// limit. The sync therefore also writes every row into ONE gzipped JSON file in Supabase Storage
+// (private bucket, service role only); the API downloads that single file. The row tables stay
+// the source of truth and the fallback.
+const BUCKET = "accounts-overview";
+const DATASET = "dataset.json.gz";
+
+export interface AoRows { companies: AoCompanyRow[]; contacts: AoContactRow[]; activities: AoActivityRow[]; deals: AoDealRow[] }
+
+export async function saveDataset(rows: AoRows): Promise<{ bytes: number }> {
+  const c = sb();
+  const { error: be } = await c.storage.createBucket(BUCKET, { public: false });
+  if (be && !/exist/i.test(be.message)) throw new Error(`[ao] bucket: ${be.message}`);
+  const body = gzipSync(Buffer.from(JSON.stringify(rows)));
+  const { error } = await c.storage.from(BUCKET).upload(DATASET, body, { upsert: true, contentType: "application/gzip" });
+  if (error) throw new Error(`[ao] dataset upload: ${error.message}`);
+  return { bytes: body.length };
+}
+
+/** The dataset file, or null when it does not exist yet (callers then read the row tables). */
+export async function loadDataset(): Promise<AoRows | null> {
+  const { data, error } = await sb().storage.from(BUCKET).download(DATASET);
+  if (error || !data) return null;
+  return JSON.parse(gunzipSync(Buffer.from(await data.arrayBuffer())).toString("utf8")) as AoRows;
 }

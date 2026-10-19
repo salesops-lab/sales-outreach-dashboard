@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabase/admin";
 import { getPrepared } from "../../../lib/accountsOverview/cache";
+import { loadAoState } from "../../../lib/accountsOverview/store";
 import { computeView, exportRows } from "../../../lib/accountsOverview/views";
 import { parseRequest, toCsv } from "../../../lib/accountsOverview/params";
 import { etDateStr } from "../../../lib/sync/buckets";
@@ -25,8 +26,10 @@ export async function GET(req: NextRequest) {
     prep = await getPrepared({ fresh: sp.get("refresh") === "1" });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    // Most likely the migration has not been applied yet — say so instead of showing zeros.
-    return NextResponse.json({ error: "setup_required", detail: msg }, { status: 503 });
+    // "Not synced yet" only when the state row really says so; anything else is a load failure
+    // and the real reason goes back to the page instead of a misleading "sync has not run".
+    const status = await loadAoState().then((st) => st.status).catch(() => "unknown");
+    return NextResponse.json({ error: status === "never" ? "setup_required" : "load_failed", detail: msg }, { status: 503 });
   }
   const nowMs = Date.now();
   const parsed = parseRequest(sp, nowMs, prep.data.state.window_start_ms);
