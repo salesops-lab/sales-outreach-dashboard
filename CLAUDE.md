@@ -600,8 +600,9 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
 - **UI (user decision, redesigned 2026-10-17)** — NO filter applied by default; two tabs + one shared
   filter bar (Team, Team member = account owner, GD Name, Type, Company ICP, Country, State, Last
   Activity Date, activity date range [default all synced], activity type). **Accounts**: HubSpot-wide
-  **US TAM** cards (not filtered) → filters → team cards → member cards of the chosen team (role from
-  the roster via `rolesFromRoster`) → 8 cards drilling one list (columns from `columns.tsx`: user can
+  **US TAM** cards (not filtered) → filters → compact "By team" + "Members of the chosen team" tables
+  side by side (same style as Deals & Activity; role from the roster via `rolesFromRoster`; every
+  number drills the list) → one slim row of 8 cards drilling one list (columns from `columns.tsx`: user can
   show/hide/re-order via "Manage columns", saved in localStorage; GD Name opens the `GroupDetail`
   drawer ← `view=group`, `groupDetail` in `views.ts`). **Look (user choice 2026-10-19): "Balanced"** — white cards
   with a coloured top edge, coloured numbers, soft per-tone shadow + hover lift, a static gradient
