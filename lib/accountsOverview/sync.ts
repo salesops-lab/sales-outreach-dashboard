@@ -16,7 +16,7 @@ import {
 } from "./pull";
 import { activityRow, companyRow, contactRow, dealInWindow, dealRow } from "./rows";
 import { lastQuarter } from "./ranges";
-import { AO_TABLES, loadAoState, pruneStale, saveAoState, upsertRun } from "./store";
+import { AO_TABLES, loadAoState, pruneStale, saveAoState, saveDataset, upsertRun } from "./store";
 import { AoActivityRow, AoCompanyRow, AoDealRow, AoReconRow } from "./types";
 
 const DAY_MS = 86_400_000;
@@ -145,10 +145,20 @@ export async function runAccountsOverviewSync(nowMs = Date.now()): Promise<{ ran
       recon.push({ check: "team_companies_stored", team: r.team, hubspot: r.hubspot, stored: count ?? 0, ok: (count ?? 0) === r.hubspot });
     }
 
+    // 7. the one-file dataset the page reads (falls back to the row tables if this fails)
+    let datasetAt: string | null = null;
+    try {
+      const { bytes } = await saveDataset({ companies: [...companies.values()], contacts, activities, deals });
+      datasetAt = new Date().toISOString();
+      console.log(`[ao] dataset file written: ${(bytes / 1e6).toFixed(1)} MB gzipped`);
+    } catch (e) {
+      console.warn(`[ao] dataset file NOT written — the page will read the row tables: ${e instanceof Error ? e.message : e}`);
+    }
+
     Object.assign(counts, { companies: companies.size, contacts: contacts.length, deals: deals.length, activities: activities.length,
       duration_s: Math.round((Date.now() - t0) / 1000) });
     await saveAoState({ status: "ok", finished_at: new Date().toISOString(), window_start_ms: windowStart, counts, reconciliation: recon, owners,
-      tam, quarter: { from_ms: quarter.fromMs, to_ms: quarter.toMs, label: quarter.label }, error: null });
+      tam, quarter: { from_ms: quarter.fromMs, to_ms: quarter.toMs, label: quarter.label }, dataset_at: datasetAt, error: null });
     const bad = recon.filter((r) => !r.ok);
     console.log(`[ao] done in ${counts.duration_s}s — ${bad.length} reconciliation mismatch(es)`);
     for (const b of bad) console.warn(`[ao]   ✗ ${b.check}${b.team ? ` (${b.team})` : ""}: HubSpot ${b.hubspot} vs stored ${b.stored}`);

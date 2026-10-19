@@ -4,7 +4,7 @@
  *  completed sync shows up on the next request, and every filter change is computed in memory. */
 import { loadTeamStructure } from "../team/load";
 import { prepare, Prepared, rolesFromRoster } from "./compute";
-import { loadAoRows, loadAoState } from "./store";
+import { loadAoRows, loadAoState, loadDataset } from "./store";
 import { AoSyncState } from "./types";
 
 const TTL_MS = 5 * 60_000;
@@ -21,7 +21,9 @@ export async function getPrepared(opts?: { fresh?: boolean }): Promise<Prepared>
   if (inflight) return inflight;
   inflight = (async () => {
     const [rows, fresh, roles] = await Promise.all([
-      loadAoRows(), loadAoState(),
+      // Fast path: the one-file dataset the sync writes; the row tables are the fallback.
+      state.dataset_at ? loadDataset().catch(() => null).then((d) => d ?? loadAoRows()) : loadAoRows(),
+      loadAoState(),
       // Roles (Manager / SDR / AE) come from the TrackerAI roster; missing roster → no role labels.
       loadTeamStructure().then(rolesFromRoster).catch(() => ({})),
     ]);

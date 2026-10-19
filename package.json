@@ -24,6 +24,7 @@
     "intel:signals": "tsx --conditions=react-server scripts/intel-signals.ts",
     "content:backfill": "tsx --conditions=react-server scripts/content-backfill.ts",
     "ao:sync": "tsx --conditions=react-server scripts/accounts-overview-sync.ts",
+    "ao:dataset": "tsx --conditions=react-server scripts/accounts-overview-dataset.ts",
     "test": "vitest run"
   },
   "dependencies": {

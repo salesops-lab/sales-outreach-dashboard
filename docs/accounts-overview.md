@@ -131,3 +131,6 @@ associated contact ids vs readable contact records.
    five deal-detail columns to `sdr_ao_deals`, so re-run it before the next sync).
 2. Run the **Accounts Overview sync** workflow (or `npm run ao:sync` locally) — ~10–15 min; then every 6 h.
 3. Open `/accounts-overview`. Until a sync completes, the page says so instead of showing zeros.
+4. The page reads one gzipped dataset file (Supabase Storage bucket `accounts-overview`, created by
+   the sync). To rebuild just that file from the stored rows: run the workflow with **dataset_only**
+   ticked (or `npm run ao:dataset`, ~1–2 min).

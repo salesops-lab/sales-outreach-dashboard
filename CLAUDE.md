@@ -81,6 +81,7 @@ spec is the design record for its feature; the phase-1/2/3 ones are historical).
 | `npm run agent:briefs` | Refresh grounded Account Briefs for watched accounts (timeline + content + deals → `sdr_agent_briefs`); needs `OPENAI_API_KEY`; runs as the 2nd step of `spine-agent.yml` |
 | `npm run embed:content` | Index new `sdr_activity_content` rows into `sdr_embeddings` (pgvector; idempotent, new rows only); needs `OPENAI_API_KEY`; runs nightly after `content:backfill` in `spine-reconcile.yml` |
 | `npm run ao:sync` | Full rebuild of the Accounts Overview tables (`sdr_ao_*`) from HubSpot (companies in the four HubSpot Teams → contacts/deals; calls/emails/meetings/notes/tasks searched in the 180-day window and kept when on those companies) + reconciliation; needs `supabase/accounts_overview_schema.sql`; runs every 6 h via `accounts-overview-sync.yml` |
+| `npm run ao:dataset` | Rebuild ONLY the Accounts Overview page's one-file dataset (`accounts-overview/dataset.json.gz` in Supabase Storage) from the stored `sdr_ao_*` rows — no HubSpot pull, ~1–2 min. `ao:sync` writes it too; also available as the `dataset_only` input of `accounts-overview-sync.yml` |
 | `npm run intel:signals` | Mine typed signals (objections/competitors/buying signals/risks/commitments/timing) from new content → `sdr_intel_signals`; idempotent via the `sdr_intel_scans` ledger, newest content first, cap `INTEL_SCAN_CAP` (default 2500/run); needs `OPENAI_API_KEY`; runs nightly after `embed:content` |
 
 All non-`dev`/`build`/`lint`/`test`/`start` scripts run via `tsx --conditions=react-server` — required so
@@ -614,6 +615,14 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   distinct-GD count) into `sdr_ao_sync_state.tam`; never stored as rows. Free-text `country` undercounts.
 - **Deals = last completed quarter only** (`lastQuarter` in `ranges.ts`; `searchQuarterDeals` searches
   deals directly, so company-less deals still count; team = company team, else SDR's/owner's team).
+- **The page reads ONE gzipped file, not the row tables.** Reading ~210k rows (90k contacts, ~96k
+  activities, ~22k companies) through PostgREST on every cold start blew the 60 s serverless limit
+  and surfaced as a misleading "sync has not run" (2026-10-19). The sync now also uploads every row
+  as `dataset.json.gz` to the private Storage bucket `accounts-overview` (`saveDataset`/`loadDataset`
+  in `store.ts`) and stamps `state.dataset_at`; `cache.ts` downloads that file and falls back to the
+  row tables only if it is missing. While a sync runs, the previous complete file keeps serving. The
+  API answers `setup_required` only when the state row says the sync never ran; any other failure is
+  `load_failed` with the real reason, shown on the page with a Try again button.
 - **Pure engine**: `compute.ts` (filters, per-account calc, tally, drill predicates) and
   `views.ts` (the two tab payloads) are I/O-free and tested; the API caches the prepared dataset until the sync-state row changes (5-min cap)
   (`cache.ts`) and computes every filter change in memory. KPI counts and drill lists share one
