@@ -128,6 +128,34 @@ export async function setUserActive(formData: FormData) {
   revalidatePath("/admin");
 }
 
+/** Change one roster member's Manager (SDR team) or AE pod straight from the roster table. The team
+ *  structure is read from the DB everywhere (scopes, team filters, Slack Reports), so the change shows
+ *  up across the dashboard within the 30 s team cache. Re-reads the row and reports what it holds. */
+export async function setRosterAssignment(ownerId: string, field: "manager_key" | "ae_pod", value: string): Promise<UserResult> {
+  try {
+    await requireAdmin();
+    if (field !== "manager_key" && field !== "ae_pod") return { ok: false, message: "Unknown field." };
+    const c = sb();
+    const next = value.trim() || null;
+    if (next) {
+      const table = field === "manager_key" ? "sdr_managers" : "sdr_pods";
+      const key = field === "manager_key" ? "manager_key" : "pod_key";
+      const { data: exists } = await c.from(table).select(key).eq(key, next).eq("active", true).maybeSingle();
+      if (!exists) return { ok: false, message: `That ${field === "manager_key" ? "manager" : "AE pod"} no longer exists — refresh the page.` };
+    }
+    const { error } = await c.from("sdr_roster").update({ [field]: next, updated_at: new Date().toISOString() }).eq("owner_id", ownerId);
+    if (error) return { ok: false, message: `Database write failed: ${error.message}` };
+    invalidateTeamCache();
+    revalidatePath("/admin");
+    const { data: row } = await c.from("sdr_roster").select(field).eq("owner_id", ownerId).maybeSingle();
+    const saved = (row as Record<string, string | null> | null)?.[field] ?? null;
+    if (saved !== next) return { ok: false, message: "Change did not save — please retry." };
+    return { ok: true, message: "Saved" };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 // ── Pods (AE pods) ────────────────────────────────────────────────────────────
 
 export async function savePod(formData: FormData) {

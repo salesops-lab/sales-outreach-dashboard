@@ -160,7 +160,9 @@ scripts/spine-{backfill,delta,reconcile}.ts · reaggregate.ts   (GitHub Actions 
   app/accounts   resolveViewer + snapshot → components/Accounts.tsx  (owned book by demo-status; lazy per-rep units via /book)
   app/admin      control center: dashboard access (everyone who has signed in + pre-added emails, Admin/Member
                  permission → sdr_roles; pure merge in lib/access/members.ts; login stays Google @spyne.ai),
-                 add/update users (email→owner), roster + soft-delete, manage pods/managers, roles, sync health   (admin only)
+                 add/update users (email→owner), roster + soft-delete + inline Manager / AE-pod dropdowns per
+                 roster row (RosterAssign → setRosterAssignment; validates the target is active, clears the
+                 30s team cache so every page picks it up), manage pods/managers, roles, sync health   (admin only)
   app/attention  the Intelligence hub (IntelligenceHub: Ask · Focus · Radar · Themes · Board) ←
                  sdr_agent_watches/briefs SSR for the Board tab; other tabs fetch /api/intel/*
   app/api/rep/[ownerId]/book|calls   lazy per-rep drill-downs   ·   app/api/agent/watches
