@@ -64,15 +64,15 @@ Pass 1 = CRM reporting (SQL group-bys). Pass 2 = CRM Search API `total`s. They m
    (other filters ignored), #Potential Rooftops, franchise / independent split, 60-day work, latest
    dates, teams / owners / states and activity.
 
-**Deals & Activity tab**:
-1. **Accounts worked in the last 60 days** — per team and per member: accounts, worked < 60 days,
-   not worked 60+ days, no activity recorded, % worked (HubSpot Last Activity Date). Numbers open the list.
-2. **Demos & deals — last completed quarter** (Q3 2026 = Jul–Sep on 2026-10-17): totals, per team,
-   pipeline by current stage, per member (demos booked as SDR, demos conducted as deal owner, deals
-   in their name) and a deal-detail list. Only that quarter's deals are stored.
-3. **Are members using their accounts and contacts?** — per member, over their own accounts in the
-   activity date range: accounts contacted / not, contacts reached / not, ICP accounts contacted,
-   average calls and emails per ICP account.
+**Deals & Pipeline tab** (redesigned 2026-10-19; the 60-day columns moved into the Accounts tab's team
+and member tables):
+1. **Demos & deals — last completed quarter**: totals, by team, by current stage, deal-detail list.
+2. **Team members**: demos booked (credited to the SDR), demos conducted (deal owner), deals in their name.
+3. **Pipeline**: one block per member with their quarter deals grouped by current stage (lost last).
+4. **Are members using their accounts and contacts?** — a funnel over each member's OWN accounts:
+   owned → worked → contacts reached / connected → ICP worked / connected / meeting-or-demo →
+   meetings booked (call outcome) / logged (meeting records) → demos booked / done (quarter) →
+   touches per worked account. Default window: last 3 months; follows the Activity date range when set.
 
 ## Metric definitions
 

@@ -123,6 +123,7 @@ export interface AoFilters {
   companyDate: DateRange | null;   // on HubSpot Last Activity Date (notes_last_updated)
   q: string;                       // list search: company name / domain / record id
   activityTypes: AoActivityType[]; // [] = all
+  activityDefault?: boolean;       // no activity date range chosen (all synced activity)
   activityFrom: number;            // [from, to) ms — the reporting period
   activityTo: number;
 }
