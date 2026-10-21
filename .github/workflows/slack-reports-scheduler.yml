@@ -1,0 +1,53 @@
+name: Slack reports scheduler
+# Pings the app's /api/slack-reports/cron once a minute. The app decides which scheduled reports are
+# due (times are edited on /slack-reports) and claims each slot once, so overlapping pings are safe.
+# Same self-perpetuating pattern as spine-delta-heartbeat.yml (GitHub's own `schedule:` is too
+# throttled on this repo for minute precision): one ~5h20m loop, then it re-dispatches itself.
+#
+# Needs repo secrets:
+#   CRON_SECRET        - must equal the CRON_SECRET env var on Vercel
+#   GH_DISPATCH_TOKEN  - PAT with actions:write (already used by the delta heartbeat)
+# Optional repo variable APP_URL (defaults to the production domain).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "11 */2 * * *" # cold start if the self-dispatch chain ever breaks
+permissions:
+  contents: read
+concurrency:
+  group: slack-reports-scheduler
+  cancel-in-progress: false
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - name: Ping the scheduler every minute for ~5h20m
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ vars.APP_URL || 'https://spyne-sales-activity-tracker.vercel.app' }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repo secret is not set - scheduled Slack reports cannot run."
+            exit 1
+          fi
+          END=$(( $(date +%s) + 19200 ))
+          while [ "$(date +%s)" -lt "$END" ]; do
+            OUT=$(curl -sS -m 55 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/slack-reports/cron" || echo '{"ping":"failed"}')
+            case "$OUT" in
+              *'"sent":[]'*) ;;                                  # nothing due - stay quiet
+              *) echo "$(date -u +%H:%M:%SZ) $OUT" ;;
+            esac
+            sleep $(( 60 - $(date +%s) % 60 ))                   # align to the top of the minute
+          done
+      - name: Re-dispatch self
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::GH_DISPATCH_TOKEN not set - the loop restarts on the next scheduled fire."
+            exit 0
+          fi
+          echo "Re-dispatching slack-reports-scheduler.yml to continue the loop..."
+          gh workflow run slack-reports-scheduler.yml --ref main -R "${{ github.repository }}"

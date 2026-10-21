@@ -44,9 +44,11 @@ function renderTable(rows: CallBlitzRow[], totals: CallBlitzTotals): string {
 
 /** Builds the plain-text Slack message: heading + a monospace table inside a code fence. No Block
  *  Kit, no image — just text/JSON over the Incoming Webhook. */
-export function formatCallBlitzMessage(report: CallBlitzReport, opts: { test?: boolean } = {}): { text: string } {
+export function formatCallBlitzMessage(report: CallBlitzReport, opts: { test?: boolean; label?: string } = {}): { text: string } {
   const testPrefix = opts.test ? "🧪 TEST REPORT\n\n" : "";
-  const heading = `📊 CALL BLITZ REPORT\n📅 ${formatDateLabel(report.reportDateEt)}\n👥 ${report.teamName}`;
+  // A scheduled send is titled by its own name (e.g. "Call Blitz-1", "Final Report").
+  const title = opts.label ? `📊 ${opts.label.toUpperCase()}` : "📊 CALL BLITZ REPORT";
+  const heading = `${title}\n📅 ${formatDateLabel(report.reportDateEt)}\n👥 ${report.teamName}`;
   const table = report.rows.length > 0
     ? renderTable(report.rows, report.totals)
     : "No reps found for this team.";

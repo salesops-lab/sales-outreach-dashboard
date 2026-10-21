@@ -12,10 +12,10 @@ import { createServerClient } from "@supabase/ssr";
 import { NextRequest, NextResponse } from "next/server";
 import { isAllowedUser } from "./lib/auth/domain";
 
-// "/api/sync/delta" is public because external pingers have no session — the route
-// self-authenticates via a CRON_SECRET Bearer check. Any future sync route must be
-// added here explicitly (exact path) and must self-authenticate the same way.
-const PUBLIC_PATHS = ["/login", "/auth", "/api/sync/delta"];
+// "/api/sync/delta" and "/api/slack-reports/cron" are public because external pingers have no
+// session — both routes self-authenticate via a CRON_SECRET Bearer check. Any future cron route
+// must be added here explicitly (exact path) and must self-authenticate the same way.
+const PUBLIC_PATHS = ["/login", "/auth", "/api/sync/delta", "/api/slack-reports/cron"];
 
 export async function middleware(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

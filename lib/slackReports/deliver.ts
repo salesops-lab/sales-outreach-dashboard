@@ -1,16 +1,15 @@
-/** Slack Incoming Webhook delivery. The webhook URL is resolved from `process.env[envVarKey]` at
- *  send time ONLY — never stored in code, a database, or returned by any API route, never logged.
- *  Errors name the channel label + env var KEY NAME, never the resolved URL (safe to log or show
- *  in the UI). */
-export interface SlackDestinationRef {
-  channelLabel: string;
-  envVarKey: string;
-}
+/** Slack Incoming Webhook delivery. The URL comes from the report's DB row (reports added from the
+ *  page) or from `process.env[envVarKey]` (the two original reports), resolved at send time ONLY —
+ *  never returned by any API route, never logged. Errors name the channel label (and the env var
+ *  KEY NAME), never the URL. */
+import { SlackDestination } from "./types";
 
-export async function sendSlackMessage(destination: SlackDestinationRef, text: string): Promise<void> {
-  const url = process.env[destination.envVarKey];
+export async function sendSlackMessage(destination: SlackDestination, text: string): Promise<void> {
+  const url = destination.webhookUrl || (destination.envVarKey ? process.env[destination.envVarKey] : undefined);
   if (!url) {
-    throw new Error(`Slack webhook env var "${destination.envVarKey}" is not set — cannot send to ${destination.channelLabel}.`);
+    throw new Error(destination.envVarKey
+      ? `Slack webhook env var "${destination.envVarKey}" is not set — cannot send to ${destination.channelLabel}.`
+      : `No Slack webhook saved for ${destination.channelLabel}.`);
   }
   let res: Response;
   try {
