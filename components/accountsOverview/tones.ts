@@ -56,5 +56,5 @@ export const teamTone = (team: string | null | undefined): Tone => (team && TEAM
 /** Account-list cards. */
 export const CARD_TONE: Record<string, Tone> = {
   "": "indigo", "type:group": "violet", "type:single_franchise": "emerald", "type:independent": "amber",
-  "cstatus:active": "teal", "cstatus:inactive_60plus": "rose", "cstatus:no_activity": "slate", never_contacted: "orange",
+  "work:active": "teal", "work:inactive_60plus": "rose", "work:no_activity": "slate", never_contacted: "orange",
 };

@@ -6,7 +6,7 @@
 import { AO_TEAMS } from "../../config/accounts-overview";
 import { DealStageKey, stageLabel as rawStageLabel, stageOrder } from "../../config/deal-stages";
 import {
-  AccountCalc, AccountListRow, drillMatch, filterAccounts, isCall, isEmail, MemberRole, Prepared, rate, tally, toListRow,
+  AccountCalc, AccountListRow, drillMatch, filterAccounts, isCall, isEmail, MemberRole, Prepared, rate, tally, toListRow, workStatus,
 } from "./compute";
 import { resolveRange } from "./ranges";
 import { AoDealRow, AoFilters } from "./types";
@@ -92,14 +92,14 @@ export const ACCOUNT_CARDS = [
   { key: "type:group", label: "Group Dealership" },
   { key: "type:single_franchise", label: "Single Franchise" },
   { key: "type:independent", label: "Single Independent" },
-  { key: "cstatus:active", label: "Worked in last 60 days" },
-  { key: "cstatus:inactive_60plus", label: "Not worked in 60+ days" },
-  { key: "cstatus:no_activity", label: "No activity recorded" },
+  { key: "work:active", label: "Worked in last 60 days" },
+  { key: "work:inactive_60plus", label: "Not worked in 60+ days" },
+  { key: "work:no_activity", label: "No activity recorded" },
   { key: "never_contacted", label: "Never contacted" },
 ] as const;
 
-const worked = (c: AccountCalc) => c.cStatus === "active";
-const notWorked = (c: AccountCalc) => c.cStatus === "inactive_60" || c.cStatus === "inactive_90";
+const worked = (c: AccountCalc) => workStatus(c) === "active";
+const notWorked = (c: AccountCalc) => workStatus(c) === "inactive_60plus";
 
 /** One row per person who owns accounts in `accts` or is a HubSpot member of `teams`
  *  (so members with 0 accounts still show), plus "No owner" when some accounts have none. */
@@ -130,12 +130,19 @@ const stageRank = (k: string) => (k.startsWith("drop_off") || k === "non_sal" ? 
 
 const allTeams = () => AO_TEAMS.map((t) => t.value as string);
 
-/** Worked / not worked in 60 days (HubSpot Last Activity Date) for a set of accounts. */
+/** Worked / not worked in 60 days for a set of accounts (`workStatus`: groups by Rooftop Last
+ *  Activity, singles by Last Activity Date). */
 const workRow = (list: AccountCalc[]) => ({
   worked_60: list.filter(worked).length, not_worked_60: list.filter(notWorked).length,
-  no_activity: list.filter((c) => c.cStatus === "no_activity").length,
+  no_activity: list.filter((c) => workStatus(c) === "no_activity").length,
   pct_worked: rate(list.filter(worked).length, list.length),
 });
+/** The same, split into group rooftops and single companies (SF + SI + unknown). */
+const workSplit = (list: AccountCalc[]) => {
+  const g = list.filter((c) => c.p.type.type === "group");
+  const s = list.filter((c) => c.p.type.type !== "group");
+  return { group: { accounts: g.length, ...workRow(g) }, single: { accounts: s.length, ...workRow(s) } };
+};
 
 export function computeView(prep: Prepared, f: AoFilters, view: AoView, o: ListOpts, nowMs: number, d?: DealOpts) {
   const state = prep.data.state;
@@ -165,6 +172,7 @@ export function computeView(prep: Prepared, f: AoFilters, view: AoView, o: ListO
           role: r, accounts: list.filter((c) => prep.roleOf(c.p.row.owner_id) === r).length,
         })),
         ...workRow(list),
+        split: workSplit(list),
       };
     });
     const people = peopleOf(prep, noOwner, scopeTeams).map((m) => {

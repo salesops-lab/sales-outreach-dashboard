@@ -177,9 +177,9 @@ describe("engine", () => {
     expect(count("type:group")).toBe(2);
     expect(v.unique_gds).toBe(1);
     expect(count("type:single_franchise") + count("type:independent") + count("type:group") + 1).toBe(7); // +1 unknown
-    expect(count("cstatus:active")).toBe(5);
-    expect(count("cstatus:inactive_60plus")).toBe(1);
-    expect(count("cstatus:no_activity")).toBe(1);
+    expect(count("work:active")).toBe(5);
+    expect(count("work:inactive_60plus")).toBe(1);
+    expect(count("work:no_activity")).toBe(1);
     expect(count("never_contacted")).toBe(1);
     for (const c of v.cards) {
       const listed = computeView(prep, filters(), "accounts", { ...LIST, drill: c.key }, NOW) as { list: { total: number } };
@@ -187,6 +187,32 @@ describe("engine", () => {
     }
     const accts = filterAccounts(prep, filters(), NOW);
     expect(accts.filter((a) => drillMatch(a, "type:group"))).toHaveLength(2);
+  });
+
+  it("worked-60d: groups use Rooftop Last Activity, singles the company Last Activity Date", () => {
+    const prep = prepare(data({
+      companies: [
+        // group rooftops — the company date is ignored
+        co("1", { gd_name: "G", last_activity_ms: NOW - 200 * DAY, rooftop_last_activity_ms: NOW - 3 * DAY }), // worked
+        co("2", { gd_name: "G", last_activity_ms: NOW - 3 * DAY, rooftop_last_activity_ms: NOW - 90 * DAY }), // not worked
+        co("3", { gd_name: "G", rooftop_last_activity_ms: null }),                                            // no date
+        // singles — the rooftop date is ignored
+        co("4", { last_activity_ms: NOW - 3 * DAY, rooftop_last_activity_ms: null }),                         // worked
+        co("5", { type_of_dealership: "Independent", last_activity_ms: NOW - 70 * DAY }),                     // not worked
+        co("6", { last_activity_ms: null, last_contacted_ms: null }),                                         // no activity
+      ],
+    }));
+    const v = computeView(prep, filters(), "accounts", LIST, NOW) as any;
+    const t = v.teams.find((r: any) => r.team === "Neelima");
+    expect([t.worked_60, t.not_worked_60, t.no_activity]).toEqual([2, 2, 2]);
+    expect(t.split.group).toMatchObject({ accounts: 3, worked_60: 1, not_worked_60: 1, no_activity: 1 });
+    expect(t.split.single).toMatchObject({ accounts: 3, worked_60: 1, not_worked_60: 1, no_activity: 1 });
+    const accts = filterAccounts(prep, filters(), NOW);
+    const ids = (k: string) => accts.filter((a) => drillMatch(a, k)).map((a) => a.p.row.hs_id);
+    expect(ids("work:active")).toEqual(["1", "4"]);
+    expect(ids("work:active:group")).toEqual(["1"]);
+    expect(ids("work:inactive_60plus:single")).toEqual(["5"]);
+    expect(ids("single")).toEqual(["4", "5", "6"]);
   });
 
   it("verifies Never Contacted against HubSpot and the synced activity", () => {
@@ -318,7 +344,7 @@ describe("group detail", () => {
     const prep = prepare(data({
       companies: [
         co("1", { gd_name: "Alpha Group", potential_rooftops: 5, rooftop_last_activity_ms: NOW - 3 * DAY }),
-        co("2", { gd_name: "alpha group", team: "Prince", state: "CA", type_of_dealership: "Independent", potential_rooftops: 7, last_activity_ms: NOW - 80 * DAY }),
+        co("2", { gd_name: "alpha group", team: "Prince", state: "CA", type_of_dealership: "Independent", potential_rooftops: 7, rooftop_last_activity_ms: NOW - 80 * DAY }),
         co("3", { gd_name: "Beta" }), co("4", { gd_name: "Alpha Group", team: null }),
       ],
     }));

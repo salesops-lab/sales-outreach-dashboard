@@ -244,13 +244,31 @@ export function filterAccounts(prep: Prepared, f: AoFilters, nowMs: number): Acc
   return out;
 }
 
+/** 60-day work status used by the team / member tables, the account cards and the group drawer
+ *  (user decision 2026-10-21): group rooftops (GD Name set) go by the custom Rooftop Last Activity,
+ *  single companies (SF + SI) by HubSpot's company Last Activity Date. "no_activity" = that date is empty. */
+export type WorkStatus = "active" | "inactive_60plus" | "no_activity" | "needs_review";
+export function workStatus(c: AccountCalc): WorkStatus {
+  const s = c.p.type.type === "group" ? c.rStatus : c.cStatus;
+  if (s === "active") return "active";
+  if (s === "inactive_60" || s === "inactive_90") return "inactive_60plus";
+  if (s === "no_activity" || s === "missing_date") return "no_activity";
+  return "needs_review";
+}
+
 // ── drill-down predicates (KPI click → filtered account list) ────────────────
 export function drillMatch(c: AccountCalc, key: string): boolean {
   if (!key) return true;
-  const [k, v] = key.split(":");
+  const [k, v, scope] = key.split(":");
   const icpYes = c.p.icp === "yes";
   switch (k) {
     case "type": return c.p.type.type === v;
+    case "single": return c.p.type.type !== "group";
+    case "work": { // work:<status>[:group|single]
+      const isGroup = c.p.type.type === "group";
+      if ((scope === "group" && !isGroup) || (scope === "single" && isGroup)) return false;
+      return workStatus(c) === v;
+    }
     case "cstatus": return v === "inactive_60plus" ? (c.cStatus === "inactive_60" || c.cStatus === "inactive_90") : c.cStatus === v;
     case "rstatus": return v === "inactive_60plus" ? (c.rStatus === "inactive_60" || c.rStatus === "inactive_90") : c.rStatus === v;
     case "never_contacted": return c.neverContacted;
