@@ -112,7 +112,7 @@ and the Intelligence 2.0 pure logic — signal prompt/coercion/rescan (`intel-si
 the Focus merge incl. revival-window edges (`intel-focus.test.ts`), and the Radar
 ranking incl. the zombie sink (`intel-radar.test.ts`); and the Slack Reports Call Blitz fold
 (`slack-reports.test.ts`); and the Accounts Overview classifiers + engine + params
-(`accounts-overview.test.ts`); and the Admin dashboard-access merge (`access-members.test.ts`) — 28 files / 271 tests in all. Never
+(`accounts-overview.test.ts`); and the Admin dashboard-access merge (`access-members.test.ts`) — 28 files / 272 tests in all. Never
 import a `server-only`-guarded module (`lib/supabase/admin.ts`,
 `lib/callquality/fetch.ts`, `lib/agent/openai|store|runner.ts`, `lib/slackReports/build.ts` — which
 transitively pulls in `supabaseAdmin` via `lib/spine/store.ts`/`lib/team/load.ts`) from a test — it
@@ -641,7 +641,10 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   GD yes/no flag and `dealership_group_name` do NOT decide the type (unlike the spine's `unitKeyFor`).
 - **Two inactivity dates, never substituted**: company = `notes_last_updated`, rooftop =
   `rooftop_last_activity`. Missing ≠ 0 days ≠ never contacted; "Never contacted" requires HubSpot
-  `notes_last_contacted` empty AND no synced touch.
+  `notes_last_contacted` empty AND no synced touch. **Worked / not worked 60d** (team + member tables,
+  account cards, group drawer) goes through ONE function, `workStatus` (`compute.ts`, drill key
+  `work:<status>[:group|single]`): group rooftops (GD Name set) use the rooftop date, single companies
+  the company date (user decision 2026-10-21); the By-team table shows Groups / Singles sub-rows.
 - **Counting**: calls = OUTBOUND, connected = `config/dispositions.ts`, emails = direction EMAIL,
   **touchpoints = calls + emails** (same as Call Blitz Total Touches), meetings counted separately
   (outcome only from `hs_meeting_outcome`), demos = the shared

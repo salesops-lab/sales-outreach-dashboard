@@ -84,9 +84,9 @@ and member tables):
 | Single Franchise | GD Name empty + Type of Dealership = Franchise |
 | Single Independent | GD Name empty + Type of Dealership = Independent |
 | Unknown | GD Name and Type of Dealership both empty (0 on the four teams as of 2026-10-16) |
-| Worked in last 60 days | HubSpot Last Activity Date (`notes_last_updated`) < 60 days ago |
-| Not touched in 60+ days | Last Activity Date is 60 or more days ago |
-| No recorded activity | Last Activity Date empty |
+| Worked in last 60 days | **Group rooftops:** Rooftop Last Activity (`rooftop_last_activity`) < 60 days ago. **Single companies (SF + SI):** HubSpot Last Activity Date (`notes_last_updated`) < 60 days ago (user decision 2026-10-21; `workStatus` in `compute.ts`) |
+| Not touched in 60+ days | The same date (rooftop for groups, company for singles) is 60 or more days ago |
+| No recorded activity | That date is empty |
 | Never contacted | HubSpot Last Contacted (`notes_last_contacted`) empty **and** no call/email/meeting synced |
 | Calls / Connected | OUTBOUND calls; connected = the 11 GUIDs in `config/dispositions.ts` |
 | Emails | `hs_email_direction` = EMAIL (outgoing) |
@@ -97,7 +97,7 @@ and member tables):
 | Demos conducted (quarter) | first entry into Demo Done / Accepted / In Discussion in the quarter — credited to the deal owner (AE) |
 | Deals in their name | quarter deals where the member is the SDR or the deal owner |
 | Pipeline by current stage | quarter deals grouped by their current canonical stage |
-| Worked < 60 days / not worked 60+ | Last Activity Date < 60 days / ≥ 60 days ago (per account owner) |
+| Worked < 60 days / not worked 60+ | Same rule as "Worked in last 60 days" (per account owner). The By-team table also splits each team into **Groups** and **Singles (SF + SI)** sub-rows |
 | Member role | TrackerAI roster: AE-pod lead or SDR manager/TL = Manager, else SDR / AE; not in roster = blank |
 | Contacts reached | contacts on the member's accounts that appear on a call or email in the activity date range |
 | Avg calls / emails per ICP | the member's own calls / emails on their ICP accounts ÷ their ICP accounts |

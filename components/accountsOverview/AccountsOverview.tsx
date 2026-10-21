@@ -427,7 +427,7 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
       {filterBar}
 
       {/* 3–4. Teams and the chosen team's members — accounts by type + worked in the last 60 days */}
-      <SectionTitle icon={Users} tone="violet" sub="Worked = HubSpot Last Activity Date in the last 60 days · click a number to list those accounts">
+      <SectionTitle icon={Users} tone="violet" sub="Worked = activity in the last 60 days — groups by Rooftop Last Activity, singles by Last Activity Date · click a number to list those accounts">
         Teams &amp; members
       </SectionTitle>
       <TeamChips team={f.team} onTeam={(t) => onPick(t, "", "")} />
@@ -435,20 +435,39 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
         <Card title="By team">
           <table className="w-full text-xs">
             <thead className={THEAD}><tr><TH>Team</TH><TH right>Members</TH><TH right>Accounts</TH><TH right>Group</TH><TH right>Single Fr.</TH><TH right>Single Ind.</TH><TH right>Worked &lt;60d</TH><TH right>Not worked 60+d</TH><TH right>No activity</TH><TH right>% worked</TH></tr></thead>
-            <tbody>{data.teams.map((t: any) => (
-              <tr key={t.team} className={cn("border-b border-line/60", f.team === t.team && cn("font-semibold", TONE[teamTone(t.team)].soft))}>
+            <tbody>{data.teams.flatMap((t: any) => [
+              <tr key={t.team}className={cn("border-b border-line/60", f.team === t.team && cn("font-semibold", TONE[teamTone(t.team)].soft))}>
                 <td className="px-2 py-1"><TeamName team={t.team} label={t.label} onClick={() => onTeam(t.team)} /></td>
                 <td className="px-2 py-1 text-right font-mono">{fmt(t.members)}</td>
                 <td className="px-2 py-1 text-right"><Num v={t.total} strong onClick={() => onPick(t.team, "", "")} /></td>
                 <td className="px-2 py-1 text-right"><Num v={t.group} onClick={() => onPick(t.team, "", "type:group")} /></td>
                 <td className="px-2 py-1 text-right"><Num v={t.single_franchise} onClick={() => onPick(t.team, "", "type:single_franchise")} /></td>
                 <td className="px-2 py-1 text-right"><Num v={t.independent} onClick={() => onPick(t.team, "", "type:independent")} /></td>
-                <td className="px-2 py-1 text-right"><Num v={t.worked_60} onClick={() => onPick(t.team, "", "cstatus:active")} /></td>
-                <td className="px-2 py-1 text-right"><Num v={t.not_worked_60} strong onClick={() => onPick(t.team, "", "cstatus:inactive_60plus")} /></td>
-                <td className="px-2 py-1 text-right"><Num v={t.no_activity} onClick={() => onPick(t.team, "", "cstatus:no_activity")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.worked_60} onClick={() => onPick(t.team, "", "work:active")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.not_worked_60} strong onClick={() => onPick(t.team, "", "work:inactive_60plus")} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.no_activity} onClick={() => onPick(t.team, "", "work:no_activity")} /></td>
                 <td className="px-2 py-1 text-right"><PctBar v={t.pct_worked} /></td>
-              </tr>
-            ))}</tbody>
+              </tr>,
+              ...(["group", "single"] as const).map((k) => {
+                const s = t.split?.[k];
+                if (!s) return null;
+                return (
+                  <tr key={`${t.team}-${k}`} className="border-b border-line/40 text-ink-muted">
+                    <td className="py-0.5 pl-6 pr-2 text-[11px]">
+                      ↳ {k === "group" ? "Groups" : "Singles (SF + SI)"}
+                      <span className="ml-1 text-[10px] text-ink-subtle">· {k === "group" ? "Rooftop Last Activity" : "Last Activity Date"}</span>
+                    </td>
+                    <td />
+                    <td className="px-2 py-0.5 text-right"><Num v={s.accounts} onClick={() => onPick(t.team, "", k === "group" ? "type:group" : "single")} /></td>
+                    <td colSpan={3} />
+                    <td className="px-2 py-0.5 text-right"><Num v={s.worked_60} onClick={() => onPick(t.team, "", `work:active:${k}`)} /></td>
+                    <td className="px-2 py-0.5 text-right"><Num v={s.not_worked_60} onClick={() => onPick(t.team, "", `work:inactive_60plus:${k}`)} /></td>
+                    <td className="px-2 py-0.5 text-right"><Num v={s.no_activity} onClick={() => onPick(t.team, "", `work:no_activity:${k}`)} /></td>
+                    <td className="px-2 py-0.5 text-right"><PctBar v={s.pct_worked} /></td>
+                  </tr>
+                );
+              }),
+            ])}</tbody>
           </table>
           <p className="mt-1.5 text-[10px] text-ink-subtle">
             Accounts by owner role — {data.teams.map((t: any) => `${t.team}: ${t.by_role.map((r: any) => `${r.role} ${fmt(r.accounts)}`).join(" · ")}`).join("  |  ")}
@@ -471,9 +490,9 @@ function AccountsTab({ data, f, filterBar, card, q, sort, dir, csvHref, onTeam, 
                   <td className="px-2 py-1 text-right"><Num v={m.group} onClick={() => onPick(null, m.owner_id, "type:group")} /></td>
                   <td className="px-2 py-1 text-right"><Num v={m.single_franchise} onClick={() => onPick(null, m.owner_id, "type:single_franchise")} /></td>
                   <td className="px-2 py-1 text-right"><Num v={m.independent} onClick={() => onPick(null, m.owner_id, "type:independent")} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={m.worked_60} onClick={() => onPick(null, m.owner_id, "cstatus:active")} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={m.not_worked_60} strong onClick={() => onPick(null, m.owner_id, "cstatus:inactive_60plus")} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={m.no_activity} onClick={() => onPick(null, m.owner_id, "cstatus:no_activity")} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.worked_60} onClick={() => onPick(null, m.owner_id, "work:active")} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.not_worked_60} strong onClick={() => onPick(null, m.owner_id, "work:inactive_60plus")} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.no_activity} onClick={() => onPick(null, m.owner_id, "work:no_activity")} /></td>
                   <td className="px-2 py-1 text-right"><PctBar v={m.pct_worked} /></td>
                 </tr>
               ))}
