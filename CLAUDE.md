@@ -644,7 +644,9 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   `notes_last_contacted` empty AND no synced touch. **Worked / not worked 60d** (team + member tables,
   account cards, group drawer) goes through ONE function, `workStatus` (`compute.ts`, drill key
   `work:<status>[:group|single]`): group rooftops (GD Name set) use the rooftop date, single companies
-  the company date (user decision 2026-10-21); the By-team table shows Groups / Singles sub-rows.
+  the company date (user decision 2026-10-21). The By-team table is ONE row per team with split columns
+  (user layout, 2026-10-21): Members · Group accounts · Single Fr. · Single Ind. · [Group worked / not worked]
+  · [Single worked / not worked] · [No activity: Group / Single] — sub-rows were tried and rejected as hard to read.
 - **Counting**: calls = OUTBOUND, connected = `config/dispositions.ts`, emails = direction EMAIL,
   **touchpoints = calls + emails** (same as Call Blitz Total Touches), meetings counted separately
   (outcome only from `hs_meeting_outcome`), demos = the shared

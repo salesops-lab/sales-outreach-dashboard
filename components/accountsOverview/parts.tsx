@@ -64,5 +64,8 @@ export function Note({ children, tone = "muted" }: { children: React.ReactNode; 
   );
 }
 
-export const TH = ({ children, right }: { children: React.ReactNode; right?: boolean }) =>
-  <th className={cn("whitespace-nowrap px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-ink-subtle", right ? "text-right" : "text-left")}>{children}</th>;
+export const TH = ({ children, right, center, colSpan, rowSpan, className }: {
+  children: React.ReactNode; right?: boolean; center?: boolean; colSpan?: number; rowSpan?: number; className?: string;
+}) =>
+  <th colSpan={colSpan} rowSpan={rowSpan} className={cn("whitespace-nowrap px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-ink-subtle",
+    center ? "text-center" : right ? "text-right" : "text-left", className)}>{children}</th>;
