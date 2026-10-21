@@ -2,20 +2,28 @@ import { redirect } from "next/navigation";
 import { Radio } from "lucide-react";
 import { supabaseServer } from "../../lib/supabase/server";
 import { resolveViewer } from "../../lib/access/resolve";
-import { SLACK_REPORTS } from "../../config/slack-reports";
+import { listReports, recentRuns } from "../../lib/slackReports/store";
+import { loadTeamStructure } from "../../lib/team/load";
+import { nameMap, sdrOwnersUnderManager } from "../../lib/team/helpers";
 import AppNav from "../../components/AppNav";
 import SlackReportsHub from "../../components/slackReports/SlackReportsHub";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/** Slack Reports — admin-only, on-demand only (no automatic schedule, no database). Reports are a
- *  static list (config/slack-reports.ts — see that file's header comment for why). Gated exactly
- *  like /admin (page-level redirect + a re-derived requireAdmin() check in every server action). */
+/** Slack Reports — admin-only. Reports live in `sdr_slack_reports` (add / delete / schedule from
+ *  this page); config/slack-reports.ts is only the seed + read-only fallback. Gated exactly like
+ *  /admin (page-level redirect + requireAdmin() in every server action). */
 export default async function SlackReportsPage() {
   const { data: { user } } = await supabaseServer().auth.getUser();
   const viewer = await resolveViewer(user?.email ?? "");
   if (!viewer.isAdmin) redirect("/");
+
+  const [{ reports, tableReady }, runs, ts] = await Promise.all([listReports(), recentRuns(), loadTeamStructure()]);
+  const names = nameMap(ts);
+  const teams = Object.values(ts.managers)
+    .map((m) => ({ key: m.key, name: m.name, members: sdrOwnersUnderManager(ts, m.key).map((id) => names[id] ?? id).sort() }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <>
@@ -27,10 +35,10 @@ export default async function SlackReportsPage() {
           </span>
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight text-ink sm:text-[28px]">Slack Reports</h1>
-            <p className="mt-0.5 text-sm text-ink-muted">Share sales activity reports to Slack on demand.</p>
+            <p className="mt-0.5 text-sm text-ink-muted">Share sales activity reports to Slack — on demand or on a schedule.</p>
           </div>
         </header>
-        <SlackReportsHub reports={SLACK_REPORTS} />
+        <SlackReportsHub reports={reports} runs={runs} teams={teams} tableReady={tableReady} />
       </main>
     </>
   );

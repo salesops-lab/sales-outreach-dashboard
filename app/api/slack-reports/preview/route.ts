@@ -1,13 +1,11 @@
-/** Live preview for the Slack Reports page — GET /api/slack-reports/preview?key=<report key>
- *  Session-gated by the global middleware; additionally requires isAdmin (same gate as the rest of
- *  the Slack Reports module). Looks the report up by its config key (not a raw managerKey) so the
- *  preview always applies the SAME exclusions/config as the eventual rendered image — the two can
- *  never drift apart. Calls the exact same assembleCallBlitzReport() the scheduler and "Send
- *  Test"/"Run Now" use. */
+/** Live preview for the Slack Reports page — GET /api/slack-reports/preview?key=<report id>
+ *  Session-gated by the global middleware; additionally requires isAdmin. Looks the report up by id
+ *  so the preview applies the SAME team/exclusions as the eventual send, through the exact same
+ *  assembleCallBlitzReport() that Send Test / Run Now / the scheduler use. */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabase/server";
 import { resolveViewer } from "../../../../lib/access/resolve";
-import { getSlackReport } from "../../../../config/slack-reports";
+import { getReportWithDestination } from "../../../../lib/slackReports/store";
 import { assembleCallBlitzReport } from "../../../../lib/slackReports/build";
 
 export const dynamic = "force-dynamic";
@@ -19,11 +17,11 @@ export async function GET(req: NextRequest) {
 
   const key = req.nextUrl.searchParams.get("key");
   if (!key) return NextResponse.json({ error: "key required" }, { status: 400 });
-  const config = getSlackReport(key);
-  if (!config) return NextResponse.json({ error: "unknown report" }, { status: 404 });
+  const found = await getReportWithDestination(key);
+  if (!found) return NextResponse.json({ error: "unknown report" }, { status: 404 });
 
   try {
-    const report = await assembleCallBlitzReport({ managerKey: config.managerKey, excludeOwnerNames: config.excludeOwnerNames });
+    const report = await assembleCallBlitzReport({ managerKey: found.report.managerKey, excludeOwnerNames: found.report.excludeOwnerNames });
     return NextResponse.json(report);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "failed to build preview" }, { status: 500 });

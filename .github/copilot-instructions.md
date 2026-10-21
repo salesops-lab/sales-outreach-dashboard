@@ -47,7 +47,7 @@ footprint (repo `salesops-lab/sdr-outreach-dashboard`, salesops Vercel project, 
   - Single file: `npm test -- --run tests/temperature.test.ts`
   - By name: `npm test -- --run -t "temperature"`
   - Watch mode: `npx vitest tests/temperature.test.ts` (drop the `--run`)
-- **Test coverage:** `tests/` covers pure logic only — 28 files / 271 tests: US/Eastern bucketing with DST (+ `periodBounds`), aggregation (incl. GD grouping + deal integration + V3 event-truth demos/pipeline + range windows), activity/deal→company association (+ orphan-heal fallback), temperature classification, the canonical deal-stage engine (+ V3 active/parked/demo-completed predicates), stage-event extraction, demo-status segmentation, Deal Health, Forecast v1, integrity checks, the account-timeline builder, the calling drill-down builder, the embedding chunk composer, pod/team filters, call-quality mapping, spine row mappers, RBAC scope decision, agent detector/prompt/ranking, the auth-domain rule, the Slack Reports Call Blitz fold, the Accounts Overview classifiers/engine/params, and the Admin dashboard-access merge. Never import `server-only` modules in tests; they throw under Vitest.
+- **Test coverage:** `tests/` covers pure logic only — 29 files / 279 tests: US/Eastern bucketing with DST (+ `periodBounds`), aggregation (incl. GD grouping + deal integration + V3 event-truth demos/pipeline + range windows), activity/deal→company association (+ orphan-heal fallback), temperature classification, the canonical deal-stage engine (+ V3 active/parked/demo-completed predicates), stage-event extraction, demo-status segmentation, Deal Health, Forecast v1, integrity checks, the account-timeline builder, the calling drill-down builder, the embedding chunk composer, pod/team filters, call-quality mapping, spine row mappers, RBAC scope decision, agent detector/prompt/ranking, the auth-domain rule, the Slack Reports Call Blitz fold + schedule, the Accounts Overview classifiers/engine/params, and the Admin dashboard-access merge. Never import `server-only` modules in tests; they throw under Vitest.
 
 ## Architecture Overview
 
@@ -179,26 +179,23 @@ missing ≠ 0 days ≠ never contacted. Full metric→source map: `docs/accounts
 
 ## Slack Reports (`lib/slackReports/*`, admin-only, `/slack-reports`)
 
-On-demand Slack sharing — **no automatic schedule, no database**. First report type: **Call Blitz**
+Admin-managed Slack sharing, **on demand or on a schedule**. First report type: **Call Blitz**
 (Calls/Emails/Total Touches/Connected/High Intent/Low Intent/Not Interested/Referral/Demos/Meeting
 per rep + totals). Gated exactly like `/admin` (`viewer.isAdmin` + `lib/access/requireAdmin.ts` in
-every server action). **Total Touches = Calls + Emails** (verbatim from `lib/sync/temperature.ts`);
-all disposition counts reuse `config/dispositions.ts` predicates directly — no parallel
-calculation. Demos is deal-stage-driven (`demoScheduledMs()`), Meeting is call-outcome-driven
-(Meeting Scheduled OR Rescheduled) — deliberately different data sources. Reporting date is always
-the dashboard's own ET "today," computed fresh at click time. **Report config is code, not a
-database table** — `config/slack-reports.ts` (`SLACK_REPORTS`) lists team/channel per report;
-adding a team is a code change + redeploy (deliberately not admin-editable, for a small fixed set
-of teams). A report can drop specific reps entirely via `excludeOwnerNames` (filtered in
-`build.ts` before any data loads, so it never skews `TEAM TOTAL` either). **Delivery is a Slack
-Incoming Webhook POST carrying a fixed-width monospace table — no bot token, no file upload, no
-image, no headless browser.** `lib/slackReports/format.ts` pads columns into an aligned table
-inside a code block (a Block Kit per-rep bullet layout was tried first and rejected as "not a
-proper table"); `deliver.ts`'s `sendSlackMessage()` posts `{text}` to the webhook URL resolved from
-`process.env[envVarKey]` at send time only (each config entry names a `channelEnvVar`, never the
-URL). **"Run Now"/"Send Test" run inline** in `app/slack-reports/actions.ts` → `lib/slackReports/
-run.ts`'s `runOneReport()` — no GitHub Actions dispatch, no background job, since a webhook POST
-has no browser dependency. Results land in Slack synchronously.
+every server action). **Total Touches = Calls + Emails**; all disposition counts reuse
+`config/dispositions.ts` predicates — no parallel calculation. Reporting date is always the ET "today".
+**Reports live in `sdr_slack_reports`** (+ run log `sdr_slack_report_runs`;
+`supabase/slack_reports_schema.sql`; RLS on, no policies → service-role only because rows hold the
+webhook URL). Admins **add** (team, reps to leave out, channel, webhook URL, schedule), **delete** and
+**schedule** reports from the page; `config/slack-reports.ts` is only the seed + read-only fallback.
+The webhook URL is never sent to the browser (`getReportWithDestination` is server-only); the two
+seeded reports keep env-var webhooks in Vercel. **Schedules** (`schedule.ts`, pure + tested): times
+in IST (default 9:30 PM / 12:30 AM / 2:55 AM — Call Blitz-1 / Call Blitz-2 / Final Report; each name is editable and becomes the Slack title) on US/ET
+weekdays (default Mon–Fri; days key off the ET date, so all three belong to one US day).
+`slack-reports-scheduler.yml` pings `/api/slack-reports/cron` (public, `CRON_SECRET` bearer) every
+minute; the route runs on Vercel and claims each `(report_id, slot_key)` once — no double sends.
+**Delivery is a Slack Incoming Webhook POST carrying a fixed-width monospace table** (`format.ts`;
+Block Kit was rejected as "not a proper table"); the slot label goes into the heading.
 
 ## Environment & Secrets
 
@@ -210,11 +207,11 @@ Required:
 - `HUBSPOT_PAT` (sync scripts)
 
 Optional:
-- `CRON_SECRET` (for `/api/sync/delta` route, constant-time check)
+- `CRON_SECRET` (for `/api/sync/delta` and `/api/slack-reports/cron`, constant-time check) — in Vercel AND GitHub Actions secrets (the Slack scheduler sends it)
 - `OPENAI_API_KEY` (agent reasoning; optional model override: `OPENAI_MODEL`, default `gpt-4o-mini`)
 - `BLOB_READ_WRITE_TOKEN` (Vercel Blob fallback for snapshot storage)
 - `GH_DISPATCH_TOKEN` (GitHub Actions secret — a PAT with `actions:write`; **required** for the delta heartbeat's self-redispatch and the admin add-user owner-pull. Also lives in Vercel env for the server-action path)
-- `SLACK_<NAME>_WEBHOOK` per `config/slack-reports.ts` entry (e.g. `SLACK_VAIBHAV_WEBHOOK`) — a plain Incoming Webhook URL, server-only, read only by `lib/slackReports/deliver.ts` at send time; lives in Vercel env since Slack Reports sends run inline in a server action
+- `SLACK_<NAME>_WEBHOOK` for the two seeded reports (e.g. `SLACK_VAIBHAV_WEBHOOK`) — Vercel env, read only by `lib/slackReports/deliver.ts` at send time; reports added from the page store their webhook on the DB row instead
 
 **Production fails closed (503)** if `NEXT_PUBLIC_SUPABASE_*` vars are missing. Local dev without them runs ungated, spine/call-quality disabled.
 
@@ -280,11 +277,11 @@ The hot-account agent runs every 2 hours (GitHub Actions), reads-only on HubSpot
   - `lib/callquality/` — read-only call-scoring merge
   - `lib/agent/` — AI agent (detect, reason, store)
   - `lib/accountsOverview/` — Accounts Overview (classify, pure engine + views, HubSpot pull, isolated store/sync)
-  - `lib/slackReports/` — Slack Reports engine (metrics fold, assembly, monospace-table format, webhook delivery)
+  - `lib/slackReports/` — Slack Reports engine (metrics fold, assembly, monospace-table format, webhook delivery, DB store, schedule)
   - `lib/auth/` — auth domain rule
   - `lib/supabase/` — Supabase client (admin = server-only)
-- `config/` — dispositions, HubSpot portal, canonical deal stages (`deal-stages.ts`); `reps`/`team-structure` are the roster seed/fallback (the DB is authoritative); `slack-reports.ts` is the Slack Reports config (code, not a DB table)
-- `tests/` — Vitest, 28 files / 271 tests, pure logic only (full inventory in CLAUDE.md's Commands section)
+- `config/` — dispositions, HubSpot portal, canonical deal stages (`deal-stages.ts`); `reps`/`team-structure` are the roster seed/fallback (the DB is authoritative); `slack-reports.ts` is the Slack Reports seed/fallback (the DB table is authoritative)
+- `tests/` — Vitest, 29 files / 279 tests, pure logic only (full inventory in CLAUDE.md's Commands section)
 - `scripts/` — CLI scripts (sync, agent, verify-schema)
 - `supabase/` — SQL schema + RLS floor
 
