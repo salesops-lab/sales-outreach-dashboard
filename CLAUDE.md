@@ -574,7 +574,12 @@ computed fresh at send time.
   like `/api/sync/delta`) runs ON VERCEL so env-var webhooks work, and **claims each slot first**
   (unique `(report_id, slot_key)`, `slot_key` = `<ET date>@<HH:MM>`) so overlapping pings never
   double-send. A failed slot is logged (`status=error`) and not retried. Needs **`CRON_SECRET`** in
-  BOTH Vercel env and GitHub Actions secrets (+ optional repo variable `APP_URL`).
+  BOTH Vercel env and GitHub Actions secrets (+ optional repo variable `APP_URL`). **Stale-read gotcha
+  (fixed 2026-10-22):** the route answered "nothing due" for every due slot on its first live day —
+  `supabaseAdmin()` now passes `cache: "no-store"` on every fetch and the route sets
+  `fetchCache = "force-no-store"`. The route returns `seen` (table readable, report count, which are
+  scheduled) and the workflow prints any non-routine answer at once plus an hourly heartbeat, so a
+  silent scheduler is diagnosable from the GitHub log.
 - **Reuse, never a parallel calculation.** `lib/slackReports/callBlitz.ts` (pure fold over
   `Activity[]`) imports only the shared predicates from `config/dispositions.ts`. `build.ts`
   `assembleCallBlitzReport()` is the one function Send Test, Run Now, the scheduler and the live
@@ -585,7 +590,9 @@ computed fresh at send time.
   token, no file upload, no image, no headless browser.** A Block Kit per-rep bullet layout was
   tried first and rejected ("not a proper table format") — `format.ts` `formatCallBlitzMessage()`
   pads columns (Touch/Calls/Email/Conn/High/Low/NI/Ref/Demo/Mtg) into an aligned table inside a code
-  block, with a `📊/📅/👥` heading (the send's own name as the title on scheduled sends), and a 🧪 marker on a test send.
+  block, with a `📊/📅/👥` heading — title = the send's own name on scheduled sends, the report's current
+  name on Run Now / Send Test; date line = the US (ET) day covered + "(US day) · as of <IST send time>" —
+  and a 🧪 marker on a test send.
   Every send (scheduled, Run Now, Send Test) is logged; the card shows the last three.
 
 ## Accounts Overview (`lib/accountsOverview/*`, `/accounts-overview`)

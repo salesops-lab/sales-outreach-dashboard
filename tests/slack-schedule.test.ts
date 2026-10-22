@@ -49,10 +49,13 @@ describe("slack report schedule", () => {
     expect(cleanSchedule({ enabled: true, days: [], slots: DEFAULT_SLOTS }).enabled).toBe(false);
   });
 
-  it("titles a scheduled send with its own name", () => {
-    const report = { reportDateEt: "2026-10-19", teamName: "Vaibhav", rows: [], totals: {} } as never;
-    expect(formatCallBlitzMessage(report, { label: "Call Blitz-1" }).text).toMatch(/^📊 CALL BLITZ-1\n/);
+  it("titles a scheduled send with its own name, a manual send with the report's name; dates the US day", () => {
+    const report = { reportDateEt: "2026-10-22", teamName: "Vaibhav", rows: [], totals: {} } as never;
+    expect(formatCallBlitzMessage(report, { label: "Call Blitz-1", reportName: "Vaibhav Call Blitz" }).text).toMatch(/^📊 CALL BLITZ-1\n/);
     expect(formatCallBlitzMessage(report, { label: "Final Report" }).text).toMatch(/^📊 FINAL REPORT\n/);
-    expect(formatCallBlitzMessage(report).text).toContain("📊 CALL BLITZ REPORT\n");
+    expect(formatCallBlitzMessage(report, { reportName: "Vaibhav Call Blitz" }).text).toMatch(/^📊 VAIBHAV CALL BLITZ\n/);
+    // sent 12:31 AM IST on Oct 23 → still the Thu Oct 22 US day
+    const t = formatCallBlitzMessage(report, { label: "Call Blitz-2", sentAtMs: ist(2026, 10, 23, 0, 31), tz: IST }).text;
+    expect(t).toContain("📅 Thu, October 22, 2026 (US day) · as of Oct 23, 12:31 AM IST");
   });
 });

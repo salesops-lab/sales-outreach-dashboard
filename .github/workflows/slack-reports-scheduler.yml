@@ -34,8 +34,10 @@ jobs:
           END=$(( $(date +%s) + 19200 ))
           while [ "$(date +%s)" -lt "$END" ]; do
             OUT=$(curl -sS -m 55 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/slack-reports/cron" || echo '{"ping":"failed"}')
+            # Print anything unusual (a send, an error, an unreadable table) at once, and one
+            # "still alive" line per hour showing what the dashboard sees.
             case "$OUT" in
-              *'"sent":[]'*) ;;                                  # nothing due - stay quiet
+              *'"ok":true,"sent":[]'*) if [ "$(date -u +%M)" = "00" ]; then echo "$(date -u +%H:%M:%SZ) heartbeat $OUT"; fi ;;
               *) echo "$(date -u +%H:%M:%SZ) $OUT" ;;
             esac
             sleep $(( 60 - $(date +%s) % 60 ))                   # align to the top of the minute

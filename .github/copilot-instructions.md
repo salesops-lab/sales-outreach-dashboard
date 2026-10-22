@@ -197,6 +197,9 @@ in IST (default 9:30 PM / 12:30 AM / 2:55 AM — Call Blitz-1 / Call Blitz-2 / F
 weekdays (default Mon–Fri; days key off the ET date, so all three belong to one US day).
 `slack-reports-scheduler.yml` pings `/api/slack-reports/cron` (public, `CRON_SECRET` bearer) every
 minute; the route runs on Vercel and claims each `(report_id, slot_key)` once — no double sends.
+Server Supabase reads use `cache: "no-store"` (a cached stale read once silenced every scheduled send); the route
+returns what it saw (`seen`) and the workflow logs anything unusual plus an hourly heartbeat. Manual sends are titled
+with the report's name; the date line shows the US day plus the IST send time.
 **Delivery is a Slack Incoming Webhook POST carrying a fixed-width monospace table** (`format.ts`;
 Block Kit was rejected as "not a proper table"); the slot label goes into the heading.
 
