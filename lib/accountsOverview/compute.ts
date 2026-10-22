@@ -10,8 +10,8 @@
  *    Notes/tasks appear in the account timeline but are NOT touchpoints.
  *  - An activity is counted ONCE per account even when it reaches the account both directly
  *    and through a contact; team/rep totals de-duplicate by activity id.
- *  - Demos come from Auto-Pipeline deals via the existing demoScheduledMs/demoCompletedMs
- *    (booked = entered Discovery Call Done; completed = first Demo Done/Accepted/In Discussion).
+ *  - Demos come from Auto-Pipeline deals' HubSpot date fields: booked = "Demo Scheduled for
+ *    Date" (demo_scheduled_for_date), completed = "Demo Completed Date" (demo_completed_date).
  *  - Account Owner, Assigned Team, Activity Owner and Contact Owner are never interchanged.
  */
 import { isConnected, MEETING_SCHEDULED_GUID, MEETING_RESCHEDULED_GUID, dispositionLabel } from "../../config/dispositions";
@@ -81,7 +81,7 @@ export interface Prepared {
   /** [teamOfOwner] or [] — kept as a list for callers that test membership. */
   teamsOfOwner: (id: string | null | undefined) => string[];
   roleOf: (id: string | null | undefined) => MemberRole | null;
-  /** A deal's team = the team of the SDR who booked it, else of the deal owner (AE), else null. */
+  /** A deal's team = its HubSpot Team field as stored by the sync (null = none of the four). */
   dealTeam: (d: AoDealRow) => string | null;
 }
 
@@ -143,7 +143,7 @@ export function prepare(data: AoData): Prepared {
     const email = owners[id]?.email;
     return (email && ROSTER_BY_EMAIL.get(email.toLowerCase())?.role) || roles[id] || null;
   };
-  const dealTeam = (d: AoDealRow) => teamOfOwner(d.sdr_owner_id) ?? teamOfOwner(d.deal_owner_id);
+  const dealTeam = (d: AoDealRow) => d.team ?? null;
   return { data, companies, byId: new Map(companies.map((c) => [c.row.hs_id, c])), contactById, ownerName, teamOfOwner, teamsOfOwner, roleOf, dealTeam };
 }
 

@@ -40,7 +40,7 @@ Pass 1 = CRM reporting (SQL group-bys). Pass 2 = CRM Search API `total`s. They m
 | Calls | `calls` — `hs_timestamp`, `hs_call_direction`, `hs_call_disposition`, `hs_call_duration`, `hs_call_title` | |
 | Emails | `emails` — `hs_email_direction`, `hs_email_subject`, `hs_email_reply_count` | |
 | Meetings | `meetings` — `hs_timestamp`, `hs_meeting_outcome`, `hs_meeting_start_time`, `hs_meeting_title` | outcome is mostly unset (939 of 954 meetings since 2026-07-16) |
-| Demos | Auto-Pipeline deals; `hs_v2_date_entered_<stage>` via `stageEventsOf` | same `demoScheduledMs` / `demoCompletedMs` as the rest of the app |
+| Demos | Auto-Pipeline deals: `demo_scheduled_for_date` (booked), `demo_completed_date` (conducted) | date-only fields, read as US/Eastern days (user decision 2026-10-22) |
 
 ## The page (redesigned 2026-10-17 at the user's request — no filter applied by default)
 
@@ -94,10 +94,10 @@ and member tables):
 | Contacted (account, date range) | ≥ 1 touchpoint on the account or its associated contacts in the range |
 | Quarter deals (stored) | Auto-Pipeline deals created, demo-booked or demo-done in the last completed quarter; team = the deal's company team, else the SDR's / deal owner's HubSpot team; deals with no team in the four are dropped |
 | Team members | HubSpot users whose MAIN team ("Default Team") is the team — extra teams ignored. Roles from the confirmed mapping (`AO_TEAM_ROSTER`) |
-| A deal's team | the team of its SDR (who booked it), else of its deal owner (AE) — not the company's team (2026-10-22) |
-| Demos booked (quarter) | deal entered Discovery Call Done in the quarter |
-| Conducted | of those booked: the deal reached Demo Done / Accepted / In Discussion (at any time so far) |
-| Not conducted | booked − conducted (no-show, still pending, or dropped before a demo) |
+| A deal's team | the deal's own **HubSpot Team** field (`hubspot_team_id`), matching a HubSpot deal filter; a deal with no team falls back to its SDR's / owner's main team |
+| Demos booked (quarter) | deal's **Demo Scheduled for Date** (`demo_scheduled_for_date`) is in the quarter |
+| Conducted | deal's **Demo Completed Date** (`demo_completed_date`) is in the quarter |
+| Not conducted | Demo Scheduled for Date in the quarter and no Demo Completed Date |
 | Total deals | every quarter deal of the team / in the member's name (as SDR or deal owner) |
 | Pipeline by current stage | quarter deals grouped by their current canonical stage |
 | Worked < 60 days / not worked 60+ | Same rule as "Worked in last 60 days" (per account owner). The By-team table shows one row per team with the split as columns: Group accounts, Single Fr., Single Ind., Group worked / not worked, Single worked / not worked, No activity (Group / Single) |

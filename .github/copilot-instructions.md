@@ -168,8 +168,9 @@ Shared types across modules:
 Isolated feature (own `sdr_ao_*` tables, own `npm run ao:sync` + `accounts-overview-sync.yml`, own API) — never
 reads/writes the spine tables or the snapshot. **Team = the company's HubSpot Team** (`hubspot_team_id`; four team ids in
 `config/accounts-overview.ts`; members = each HubSpot user's MAIN team only, roles from `AO_TEAM_ROSTER`) — never the
-hand-filled `team_accounts` dropdown. Deals count for the PEOPLE's team (SDR's, else deal owner's), not the company's;
-demo funnel = booked in the quarter → conducted + not conducted, plus total deals.
+hand-filled `team_accounts` dropdown. A deal counts for its own HubSpot Team field (deal `hubspot_team_id`), not the company's;
+demos: booked = Demo Scheduled for Date, conducted = Demo Completed Date (both in the quarter), not conducted = scheduled
+with no completed date, plus total deals.
 Account owner, activity owner and contact owner stay separate everywhere. UI by user decision (2026-10-17): no filter by
 default; one shared filter bar + two tabs — Accounts (US TAM cards [Country Dropdown = United States, sync-time counts,
 not filtered] → teams → members of the chosen team → 8 cards drilling one list) and Deals & Activity (worked/not worked
