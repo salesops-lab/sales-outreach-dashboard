@@ -38,13 +38,13 @@ function db() {
 }
 
 /** All reports + whether the table exists (false → config fallback, add/delete/schedule disabled). */
-export async function listReports(): Promise<{ reports: SlackReport[]; tableReady: boolean }> {
+export async function listReports(): Promise<{ reports: SlackReport[]; tableReady: boolean; error?: string }> {
   try {
     const { data, error } = await db().from("sdr_slack_reports").select(COLS).order("created_at");
     if (error) throw error;
     return { reports: (data as Row[]).map(toReport), tableReady: true };
-  } catch {
-    return { reports: configReports(), tableReady: false };
+  } catch (e) {
+    return { reports: configReports(), tableReady: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
 

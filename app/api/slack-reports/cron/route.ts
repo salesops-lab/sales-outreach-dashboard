@@ -10,6 +10,8 @@ import { dueSlots } from "../../../../lib/slackReports/schedule";
 import { runOneReport } from "../../../../lib/slackReports/run";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
 export const maxDuration = 60;
 
 function authorized(header: string | null): boolean {
@@ -25,19 +27,28 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const now = Date.now();
-  const { reports, tableReady } = await listReports();
-  if (!tableReady) return NextResponse.json({ ok: true, sent: [], note: "sdr_slack_reports not set up" });
+  try {
+    const { reports, tableReady, error } = await listReports();
+    // What the scheduler saw — printed in the GitHub log so a quiet scheduler is never a mystery.
+    const seen = {
+      at: new Date(now).toISOString(), table_ready: tableReady, reports: reports.length,
+      scheduled: reports.filter((r) => r.schedule.enabled).map((r) => r.name),
+    };
+    if (!tableReady) return NextResponse.json({ ok: false, sent: [], seen, error: `Cannot read sdr_slack_reports: ${error}` });
 
-  const sent: { report: string; slot: string; ok: boolean; error?: string }[] = [];
-  for (const r of reports) {
-    for (const slot of dueSlots(r.schedule, now)) {
-      const runId = await claimSlot(r.id, slot.slotKey, slot.label);
-      if (runId == null) continue; // already sent (or sending) for this slot
-      const found = await getReportWithDestination(r.id);
-      const result = found ? await runOneReport(found.report, found.dest, { label: slot.label }) : { ok: false, error: "report deleted" };
-      await finishRun(runId, result.ok, result.error);
-      sent.push({ report: r.name, slot: slot.slotKey, ok: result.ok, error: result.error });
+    const sent: { report: string; slot: string; ok: boolean; error?: string }[] = [];
+    for (const r of reports) {
+      for (const slot of dueSlots(r.schedule, now)) {
+        const runId = await claimSlot(r.id, slot.slotKey, slot.label);
+        if (runId == null) continue; // already sent (or sending) for this slot
+        const found = await getReportWithDestination(r.id);
+        const result = found ? await runOneReport(found.report, found.dest, { label: slot.label }) : { ok: false, error: "report deleted" };
+        await finishRun(runId, result.ok, result.error);
+        sent.push({ report: r.name, slot: slot.slotKey, ok: result.ok, error: result.error });
+      }
     }
+    return NextResponse.json({ ok: true, sent, seen }, { headers: { "Cache-Control": "no-store" } });
+  } catch (e) {
+    return NextResponse.json({ ok: false, sent: [], error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, sent });
 }

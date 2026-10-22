@@ -13,7 +13,9 @@ export async function runOneReport(
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const reportData = await assembleCallBlitzReport({ managerKey: report.managerKey, excludeOwnerNames: report.excludeOwnerNames });
-    const { text } = formatCallBlitzMessage(reportData, { test: opts.test, label: opts.label });
+    const { text } = formatCallBlitzMessage(reportData, {
+      test: opts.test, label: opts.label, reportName: report.name, sentAtMs: Date.now(), tz: report.schedule.tz,
+    });
     await sendSlackMessage(dest, text);
     console.log(`[slack-reports] ${opts.test ? "TEST " : ""}sent "${report.name}"${opts.label ? ` (${opts.label})` : ""} to ${report.channelLabel}`);
     return { ok: true };

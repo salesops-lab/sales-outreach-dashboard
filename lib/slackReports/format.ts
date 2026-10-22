@@ -19,7 +19,7 @@ const COLUMNS: { key: keyof CallBlitzTotals; header: string }[] = [
 function formatDateLabel(reportDateEt: string): string {
   const [y, m, d] = reportDateEt.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-US", {
-    timeZone: "UTC", year: "numeric", month: "long", day: "numeric",
+    timeZone: "UTC", weekday: "short", year: "numeric", month: "long", day: "numeric",
   });
 }
 
@@ -44,11 +44,19 @@ function renderTable(rows: CallBlitzRow[], totals: CallBlitzTotals): string {
 
 /** Builds the plain-text Slack message: heading + a monospace table inside a code fence. No Block
  *  Kit, no image — just text/JSON over the Incoming Webhook. */
-export function formatCallBlitzMessage(report: CallBlitzReport, opts: { test?: boolean; label?: string } = {}): { text: string } {
+export function formatCallBlitzMessage(
+  report: CallBlitzReport,
+  opts: { test?: boolean; label?: string; reportName?: string; sentAtMs?: number; tz?: string } = {},
+): { text: string } {
   const testPrefix = opts.test ? "🧪 TEST REPORT\n\n" : "";
-  // A scheduled send is titled by its own name (e.g. "Call Blitz-1", "Final Report").
-  const title = opts.label ? `📊 ${opts.label.toUpperCase()}` : "📊 CALL BLITZ REPORT";
-  const heading = `${title}\n📅 ${formatDateLabel(report.reportDateEt)}\n👥 ${report.teamName}`;
+  // Title: a scheduled send's own name ("Call Blitz-1", "Final Report"); a Run Now / Send Test uses
+  // the report's current name. The date is the US (ET) working day the numbers cover — the IST send
+  // time is shown next to it, since sends after midnight IST still cover the previous US day.
+  const title = `📊 ${(opts.label || opts.reportName || "Call Blitz Report").toUpperCase()}`;
+  const asOf = opts.sentAtMs != null
+    ? ` · as of ${new Date(opts.sentAtMs).toLocaleString("en-US", { timeZone: opts.tz || "Asia/Kolkata", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} ${(opts.tz || "Asia/Kolkata") === "Asia/Kolkata" ? "IST" : opts.tz}`
+    : "";
+  const heading = `${title}\n📅 ${formatDateLabel(report.reportDateEt)} (US day)${asOf}\n👥 ${report.teamName}`;
   const table = report.rows.length > 0
     ? renderTable(report.rows, report.totals)
     : "No reps found for this team.";
