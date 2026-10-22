@@ -95,7 +95,9 @@ export interface AoSyncState {
   window_start_ms: number | null;
   counts: Record<string, number>;
   reconciliation: AoReconRow[];
-  owners: Record<string, { name: string; active: boolean; teams?: string[]; email?: string | null }>; // teams = HubSpot team ids
+  // HubSpot team ids; primary_team = the user's main team (membership follows it). Absent on syncs
+  // before 2026-10-22 — then AO_TEAM_ROSTER / the only in-scope team decides (compute.ts memberTeam).
+  owners: Record<string, { name: string; active: boolean; teams?: string[]; primary_team?: string | null; email?: string | null }>;
   tam?: AoTam | null;
   dataset_at?: string | null;      // when the sync last wrote the prepared dataset file
   quarter?: { from_ms: number; to_ms: number; label: string } | null; // deal window the last sync stored

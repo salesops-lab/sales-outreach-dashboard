@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   classifyAccountType, companyIcp, companyStatus, contactIcp, normalizeCountry, rooftopStatus,
 } from "../lib/accountsOverview/classify";
-import { prepare, filterAccounts, tally, drillMatch, AoData, toListRow, rolesFromRoster } from "../lib/accountsOverview/compute";
+import { prepare, filterAccounts, tally, drillMatch, AoData, toListRow, rolesFromRoster, memberTeam } from "../lib/accountsOverview/compute";
 import { computeView, dealList, ACCOUNT_CARDS } from "../lib/accountsOverview/views";
 import { activityRow, companyRow, dealInWindow, dealRow } from "../lib/accountsOverview/rows";
 import { parseRequest, toCsv } from "../lib/accountsOverview/params";
@@ -225,7 +225,7 @@ describe("engine", () => {
     expect(accts.find((a) => a.p.row.hs_id === "2")!.neverContacted).toBe(false);
   });
 
-  it("activity tab: 60-day work per team + member, quarter deals by SDR / owner lens, utilization", () => {
+  it("activity tab: deals follow the people's HubSpot main team; booked → conducted / not conducted", () => {
     const Q = { from_ms: NOW - 100 * DAY, to_ms: NOW - 10 * DAY, label: "Q3 2026 (Jul–Sep)" };
     const deal = (o: Partial<AoDealRow>): AoDealRow => ({
       hs_id: "d", stage_key: "discovery_done", deal_owner_id: "ae", sdr_owner_id: "rep1", company_ids: ["1"],
@@ -234,7 +234,15 @@ describe("engine", () => {
     const base = data();
     const prep = prepare({
       ...base,
-      state: { ...base.state, quarter: Q, owners: { ...base.state.owners, ae: { name: "AE One", active: true, teams: ["362172280"] } } },
+      state: { ...base.state, quarter: Q, owners: {
+        ...base.state.owners,
+        ae: { name: "AE One", active: true, teams: ["362172280"], primary_team: "362172280" },
+        px: { name: "Prince SDR", active: true, teams: ["362172539"], primary_team: "362172539" },
+        // an extra team never counts: main team Neelima, extra team Central
+        sh: { name: "Two Teams", active: true, teams: ["362172280", "362172526"], primary_team: "362172280" },
+        // a shared login with three extra teams and a main team outside the four
+        cs: { name: "CS Login", active: true, teams: ["362172393", "362172539", "362172280"], primary_team: "999" },
+      } },
       roles: { rep1: "SDR", ae: "AE" },
       companies: [
         co("1", { owner_id: "rep1" }), co("2", { owner_id: "rep1", icp: "no", last_activity_ms: NOW - 70 * DAY }),
@@ -246,24 +254,30 @@ describe("engine", () => {
         act("a3", { owner_id: "other" }),
       ],
       deals: [
-        deal({ hs_id: "d1", demo_booked_ms: NOW - 50 * DAY }),
-        deal({ hs_id: "d2", stage_key: "demo_done", demo_booked_ms: NOW - 200 * DAY, demo_completed_ms: NOW - 20 * DAY }),
-        deal({ hs_id: "d3", team: "Prince", sdr_owner_id: "x", deal_owner_id: "y", company_ids: ["4"], demo_booked_ms: NOW - 40 * DAY }),
+        deal({ hs_id: "d1", demo_booked_ms: NOW - 50 * DAY }),                                                     // Neelima: booked, not conducted
+        deal({ hs_id: "d2", stage_key: "demo_done", demo_booked_ms: NOW - 200 * DAY, demo_completed_ms: NOW - 20 * DAY }), // booked before Q
+        deal({ hs_id: "d3", sdr_owner_id: "px", deal_owner_id: "y", company_ids: ["4"], team: "Neelima",           // a Prince SDR's deal
+          stage_key: "demo_done", demo_booked_ms: NOW - 40 * DAY, demo_completed_ms: NOW - 30 * DAY }),
+        deal({ hs_id: "d4", sdr_owner_id: "x", company_ids: ["4"], stage_key: "in_discussion",                     // SDR in no team → AE's team
+          demo_booked_ms: NOW - 60 * DAY, demo_completed_ms: NOW - 55 * DAY }),
+        deal({ hs_id: "d5", sdr_owner_id: "x", deal_owner_id: "y", company_ids: ["4"], demo_booked_ms: NOW - 60 * DAY }), // nobody in a team
       ],
     });
     const v = computeView(prep, filters({ country: "all" }), "activity", LIST, NOW) as any;
-    // 60-day work now lives on the Accounts tab's team + member rows
+    // 60-day work lives on the Accounts tab's team + member rows; members = main team only
     const acc = computeView(prep, filters({ country: "all" }), "accounts", LIST, NOW) as any;
-    expect(acc.teams.find((t: any) => t.team === "Neelima")).toMatchObject({ total: 3, worked_60: 1, not_worked_60: 1, no_activity: 1 });
+    expect(acc.teams.find((t: any) => t.team === "Neelima")).toMatchObject({ members: 3, total: 3, worked_60: 1, not_worked_60: 1, no_activity: 1 });
+    expect(acc.teams.find((t: any) => t.team === "Central").members).toBe(0);
     expect(acc.members.find((m: any) => m.owner_id === "rep1")).toMatchObject({ role: "SDR", total: 3, worked_60: 1, not_worked_60: 1, no_activity: 1 });
-    expect(v.deal_teams.find((t: any) => t.team === "Neelima")).toMatchObject({ deals: 2, booked: 1, conducted: 1 });
-    expect(v.deal_teams.find((t: any) => t.team === "Prince")).toMatchObject({ deals: 1, booked: 1 });
-    // booked → SDR, conducted → deal owner (AE)
-    expect(v.deal_members.find((m: any) => m.owner_id === "rep1")).toMatchObject({ booked: 1, conducted: 0, deals: 2 });
-    expect(v.deal_members.find((m: any) => m.owner_id === "ae")).toMatchObject({ booked: 0, conducted: 1, deals: 2, role: "AE" });
-    // pipeline rows carry the people and the stage order
-    expect(v.deal_rows.map((d: any) => [d.id, d.sdr_id, d.owner_id, d.stage_key]).sort()).toEqual([
-      ["d1", "rep1", "ae", "discovery_done"], ["d2", "rep1", "ae", "demo_done"], ["d3", "x", "y", "discovery_done"]]);
+    // team = the people's team, not the company's: d3 sits on a Neelima company but counts for Prince
+    expect(v.deal_teams.find((t: any) => t.team === "Neelima")).toMatchObject({ members: 3, deals: 3, booked: 2, conducted: 1, not_conducted: 1 });
+    expect(v.deal_teams.find((t: any) => t.team === "Prince")).toMatchObject({ members: 1, deals: 1, booked: 1, conducted: 1, not_conducted: 0 });
+    // members: every deal in their name; only real members are listed (no "(not in team)" rows)
+    expect(v.deal_members.map((m: any) => m.owner_id).sort()).toEqual(["ae", "px", "rep1", "sh"]);
+    expect(v.deal_members.find((m: any) => m.owner_id === "rep1")).toMatchObject({ booked: 1, conducted: 0, not_conducted: 1, deals: 2 });
+    expect(v.deal_members.find((m: any) => m.owner_id === "ae")).toMatchObject({ booked: 2, conducted: 1, not_conducted: 1, deals: 3, role: "AE" });
+    // pipeline rows = the listed members' deals (d5 has nobody in a team)
+    expect(v.deal_rows.map((d: any) => d.id).sort()).toEqual(["d1", "d2", "d3", "d4"]);
     // utilization funnel over the member's own accounts (explicit range here, so not the 3-month default)
     const u = v.utilization.find((m: any) => m.owner_id === "rep1");
     expect(u).toMatchObject({ accounts: 3, worked: 1, contacts: 2, contacts_reached: 1, icp_accounts: 2, icp_worked: 1,
@@ -271,10 +285,22 @@ describe("engine", () => {
     expect(v.util_period.default_3m).toBe(false);
     const d3m = computeView(prep, filters({ country: "all", activityDefault: true }), "activity", LIST, NOW) as any;
     expect(d3m.util_period.default_3m).toBe(true);
-    // deal list: one person's booked demos / everything for a team
+    // deal lists behind each number
     expect(dealList(prep, filters(), { team: "", owner: "rep1", kind: "booked" }).map((d) => d.id)).toEqual(["d1"]);
     expect(dealList(prep, filters(), { team: "Prince", owner: "", kind: "all" }).map((d) => d.id)).toEqual(["d3"]);
-    expect(dealList(prep, filters({ teams: ["Neelima"] }), { team: "", owner: "", kind: "conducted" }).map((d) => d.id)).toEqual(["d2"]);
+    expect(dealList(prep, filters({ teams: ["Neelima"] }), { team: "", owner: "", kind: "conducted" }).map((d) => d.id)).toEqual(["d4"]);
+    expect(dealList(prep, filters({ teams: ["Neelima"] }), { team: "", owner: "", kind: "not_conducted" }).map((d) => d.id)).toEqual(["d1"]);
+    expect(dealList(prep, filters(), { team: "", owner: "ae", kind: "all" }).map((d) => d.id)).toEqual(["d1", "d4", "d2"]);
+  });
+
+  it("team membership falls back to the confirmed mapping until the sync stores HubSpot main teams", () => {
+    const o = (email: string, teams: string[]) => ({ name: email, active: true, teams, email });
+    expect(memberTeam(o("mohd.khalid@spyne.ai", ["362172280", "362172526"]))).toBe("Neelima"); // listed → mapping
+    expect(memberTeam(o("new.joiner@spyne.ai", ["362172526"]))).toBe("Central");                  // one in-scope team
+    expect(memberTeam(o("cs.convertedaccounts@spyne.ai", ["362172393", "362172539"]))).toBeNull(); // ambiguous → none
+    expect(memberTeam({ ...o("mohd.khalid@spyne.ai", ["362172526"]), primary_team: "362172526" })).toBe("Central"); // HubSpot wins
+    const prep = prepare(data({ state: { ...data().state, owners: { k: { name: "Kshitij", active: true, teams: [], email: "kshiitj.agarwal@spyne.ai" } } } }));
+    expect(prep.roleOf("k")).toBe("SDR-TL");
   });
 
   it("roles come from the roster: pod leads / managers = Manager, else SDR / AE", () => {

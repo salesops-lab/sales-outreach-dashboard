@@ -67,7 +67,7 @@ Pass 1 = CRM reporting (SQL group-bys). Pass 2 = CRM Search API `total`s. They m
 **Deals & Pipeline tab** (redesigned 2026-10-19; the 60-day columns moved into the Accounts tab's team
 and member tables):
 1. **Demos & deals — last completed quarter**: totals, by team, by current stage, deal-detail list.
-2. **Team members**: demos booked (credited to the SDR), demos conducted (deal owner), deals in their name.
+2. **Team members** (HubSpot main team only): demos booked, conducted, not conducted and total deals in their name.
 3. **Pipeline**: one block per member with their quarter deals grouped by current stage (lost last).
 4. **Are members using their accounts and contacts?** — a funnel over each member's OWN accounts:
    owned → worked → contacts reached / connected → ICP worked / connected / meeting-or-demo →
@@ -93,9 +93,12 @@ and member tables):
 | Touchpoints | calls + emails (meetings, notes, tasks are shown but not counted) |
 | Contacted (account, date range) | ≥ 1 touchpoint on the account or its associated contacts in the range |
 | Quarter deals (stored) | Auto-Pipeline deals created, demo-booked or demo-done in the last completed quarter; team = the deal's company team, else the SDR's / deal owner's HubSpot team; deals with no team in the four are dropped |
-| Demos booked (quarter) | deal entered Discovery Call Done in the quarter — credited to the SDR (`sdr_owner`) |
-| Demos conducted (quarter) | first entry into Demo Done / Accepted / In Discussion in the quarter — credited to the deal owner (AE) |
-| Deals in their name | quarter deals where the member is the SDR or the deal owner |
+| Team members | HubSpot users whose MAIN team ("Default Team") is the team — extra teams ignored. Roles from the confirmed mapping (`AO_TEAM_ROSTER`) |
+| A deal's team | the team of its SDR (who booked it), else of its deal owner (AE) — not the company's team (2026-10-22) |
+| Demos booked (quarter) | deal entered Discovery Call Done in the quarter |
+| Conducted | of those booked: the deal reached Demo Done / Accepted / In Discussion (at any time so far) |
+| Not conducted | booked − conducted (no-show, still pending, or dropped before a demo) |
+| Total deals | every quarter deal of the team / in the member's name (as SDR or deal owner) |
 | Pipeline by current stage | quarter deals grouped by their current canonical stage |
 | Worked < 60 days / not worked 60+ | Same rule as "Worked in last 60 days" (per account owner). The By-team table shows one row per team with the split as columns: Group accounts, Single Fr., Single Ind., Group worked / not worked, Single worked / not worked, No activity (Group / Single) |
 | Member role | TrackerAI roster: AE-pod lead or SDR manager/TL = Manager, else SDR / AE; not in roster = blank |

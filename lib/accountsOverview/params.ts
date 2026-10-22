@@ -68,7 +68,7 @@ export function parseRequest(sp: URLSearchParams, nowMs: number, windowStartMs: 
   const kind = sp.get("dkind");
   const deal: DealOpts = {
     team: sp.get("dteam") ?? "", owner: sp.get("downer") ?? "",
-    kind: kind === "booked" || kind === "conducted" ? kind : "all",
+    kind: kind === "booked" || kind === "conducted" || kind === "not_conducted" ? kind : "all",
   };
   return { filters, view, list, deal, csv: sp.get("format") === "csv", warnings };
 }
