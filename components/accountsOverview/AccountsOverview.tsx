@@ -626,9 +626,9 @@ function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, open
         Demos &amp; deals — {qLabel}
       </SectionTitle>
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
-        <Stat tone="sky" label="Demos booked" value={fmt(data.deal_totals.booked)} sub={`Reached Discovery Call Done in ${qLabel}`} onClick={() => showDeals(f.team, f.owner, "booked", `Demos booked — ${teamLabel}`)} />
-        <Stat tone="emerald" label="Conducted" value={fmt(data.deal_totals.conducted)} sub="Of those booked: demo done / accepted / in discussion" onClick={() => showDeals(f.team, f.owner, "conducted", `Demos conducted — ${teamLabel}`)} />
-        <Stat tone="rose" label="Not conducted" value={fmt(data.deal_totals.not_conducted)} sub="Of those booked: no demo yet (no-show, pending, dropped)" onClick={() => showDeals(f.team, f.owner, "not_conducted", `Demos not conducted — ${teamLabel}`)} />
+        <Stat tone="sky" label="Demos booked" value={fmt(data.deal_totals.booked)} sub={`HubSpot "Demo Scheduled for Date" in ${qLabel}`} onClick={() => showDeals(f.team, f.owner, "booked", `Demos booked — ${teamLabel}`)} />
+        <Stat tone="emerald" label="Conducted" value={fmt(data.deal_totals.conducted)} sub={`HubSpot "Demo Completed Date" in ${qLabel}`} onClick={() => showDeals(f.team, f.owner, "conducted", `Demos conducted — ${teamLabel}`)} />
+        <Stat tone="rose" label="Not conducted" value={fmt(data.deal_totals.not_conducted)} sub="Scheduled in the quarter, no Demo Completed Date" onClick={() => showDeals(f.team, f.owner, "not_conducted", `Demos not conducted — ${teamLabel}`)} />
         <Stat tone="violet" label="Total deals" value={fmt(data.deal_totals.deals)} sub="Created, booked or demo done in the quarter" onClick={() => showDeals(f.team, f.owner, "all", `All deals — ${teamLabel}`)} />
       </div>
       <div className="mt-3 grid gap-3 xl:grid-cols-2">
@@ -688,8 +688,9 @@ function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, open
             </table>
           </div>
           <p className="mt-2 text-[11px] text-ink-subtle">
-            Members = each person&apos;s HubSpot main team. A team&apos;s deals = deals booked by its SDRs (or, when the SDR is in none of the four teams, owned by its AEs).
-            A member&apos;s numbers = every deal in their name (as SDR or deal owner). Conducted + Not conducted = Demos booked.
+            Members = each person&apos;s HubSpot main team. A team&apos;s deals = deals whose HubSpot Team is that team (Auto Pipeline only).
+            A member&apos;s numbers = every deal in their name (as SDR or deal owner). Booked = Demo Scheduled for Date, Conducted = Demo Completed Date
+            (both in the quarter); Not conducted = scheduled in the quarter with no Demo Completed Date.
           </p>
         </Card>
       </div>

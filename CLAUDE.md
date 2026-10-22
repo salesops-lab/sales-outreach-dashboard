@@ -599,10 +599,14 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   `compute.ts`) — extra teams are ignored (they double-listed Shadman Khalid and a shared CS login).
   Before a sync has stored `primary_team`, `AO_TEAM_ROSTER` (the user-confirmed mapping, = HubSpot
   main teams on 2026-10-22, also the source of each person's **role** label) decides, else the only
-  in-scope team. **Deals count for the people's team** (`prep.dealTeam`: the SDR's team, else the
-  deal owner's), NOT the company's — a team's demo numbers are its own members'. Demo funnel per team /
-  member (one cohort): **booked** in the quarter → **conducted** (demo done/accepted/in discussion,
-  any time) + **not conducted**, plus **total deals**; a member's row = every deal in their name. Do NOT use the
+  in-scope team. **A deal counts for its own HubSpot Team field** (deal `hubspot_team_id`, stored as
+  `team` by the sync; `prep.dealTeam`) so team totals match a HubSpot "HubSpot Team" deal filter (user check
+  2026-10-22: Neelima + Demo Completed in Q3 = 117 in HubSpot, 115 of them Auto Pipeline); only a deal with
+  no team falls back to its SDR's / owner's main team. Demo funnel per team /
+  member: **booked** = HubSpot **Demo Scheduled for Date** (`demo_scheduled_for_date`) in the quarter,
+  **conducted** = **Demo Completed Date** (`demo_completed_date`) in the quarter, **not conducted** = scheduled
+  in the quarter with no completed date, plus **total deals** (user decision 2026-10-22 — NOT the stage-entry
+  dates the spine uses; date-only fields are read as US/Eastern days, `dateMs`); a member's row = every deal in their name. Do NOT use the
   hand-filled `team_accounts` dropdown (first version did; numbers were ~3× too small). Account
   owner, activity owner and contact owner stay separate fields everywhere.
 - **Isolated by design**: the spine only holds tracked reps' companies/activity, so the feature has its
@@ -634,8 +638,8 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   old TAM dashboard's number) — counted at sync time (`pullTam`: Search totals + GD-Name rows for the
   distinct-GD count) into `sdr_ao_sync_state.tam`; never stored as rows. Free-text `country` undercounts.
 - **Deals = last completed quarter only** (`lastQuarter` in `ranges.ts`; `searchQuarterDeals` searches
-  deals directly, so company-less deals still count; the sync keeps a deal when its company is in a team or
-  its SDR's / owner's MAIN team is one of the four; the page then counts it for the people's team, `prep.dealTeam`).
+  deals directly — created, Demo Scheduled for Date or Demo Completed Date in the quarter; kept when its HubSpot
+  Team is one of the four or one of its people's main team is, so member rows see all their deals).
 - **The page reads ONE gzipped file, not the row tables.** Reading ~210k rows (90k contacts, ~96k
   activities, ~22k companies) through PostgREST on every cold start blew the 60 s serverless limit
   and surfaced as a misleading "sync has not run" (2026-10-19). The sync now also uploads every row
@@ -661,8 +665,8 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   · [Single worked / not worked] · [No activity: Group / Single] — sub-rows were tried and rejected as hard to read.
 - **Counting**: calls = OUTBOUND, connected = `config/dispositions.ts`, emails = direction EMAIL,
   **touchpoints = calls + emails** (same as Call Blitz Total Touches), meetings counted separately
-  (outcome only from `hs_meeting_outcome`), demos = the shared
-  `demoScheduledMs`/`demoCompletedMs` over Auto-Pipeline deals; dedupe by activity/deal id.
+  (outcome only from `hs_meeting_outcome`), demos = Auto-Pipeline deals' `demo_scheduled_for_date` /
+  `demo_completed_date` (this page only — the spine keeps `demoScheduledMs`/`demoCompletedMs`); dedupe by activity/deal id.
 
 ## Derived-metric definitions (`lib/sync/aggregate.ts` unless noted)
 

@@ -245,9 +245,8 @@ function threeMonths(nowMs: number) {
 const inQ = (ms: number | null | undefined, q: { from_ms: number; to_ms: number } | null) =>
   ms != null && q != null && ms >= q.from_ms && ms < q.to_ms;
 
-/** Deals that pass the Team + Team member filters. A deal's team is the team of the people on it
- *  (`prep.dealTeam`: the SDR who booked it, else the deal owner) — NOT the company's team, so a
- *  team's numbers are its own members' demos (user decision 2026-10-22). */
+/** Deals that pass the Team + Team member filters. A deal's team is the deal's own HubSpot Team
+ *  field (`prep.dealTeam`), so team totals match a HubSpot "HubSpot Team" deal filter. */
 function scopedDeals(prep: Prepared, f: AoFilters): AoDealRow[] {
   const teams = new Set(f.teams.length ? f.teams : allTeams());
   return prep.data.deals.filter((d) => {
@@ -256,15 +255,17 @@ function scopedDeals(prep: Prepared, f: AoFilters): AoDealRow[] {
   });
 }
 
-/** Demo funnel for a set of deals, one cohort: demos BOOKED in the quarter, how many of those were
- *  CONDUCTED (reached Demo Done / Accepted / In Discussion — at any time so far) and how many were
- *  NOT, plus every deal in the quarter. booked = conducted + not_conducted. */
+/** Demo numbers from the deal's HubSpot date fields (user decision 2026-10-22):
+ *  BOOKED = "Demo Scheduled for Date" in the quarter; CONDUCTED = "Demo Completed Date" in the quarter;
+ *  NOT CONDUCTED = scheduled for the quarter but no Demo Completed Date at all. */
 const isBooked = (d: AoDealRow, q: { from_ms: number; to_ms: number } | null) => inQ(d.demo_booked_ms, q);
-const isConducted = (d: AoDealRow, q: { from_ms: number; to_ms: number } | null) => isBooked(d, q) && d.demo_completed_ms != null;
+const isConducted = (d: AoDealRow, q: { from_ms: number; to_ms: number } | null) => inQ(d.demo_completed_ms, q);
+const isNotConducted = (d: AoDealRow, q: { from_ms: number; to_ms: number } | null) => isBooked(d, q) && d.demo_completed_ms == null;
 function funnel(list: AoDealRow[], q: { from_ms: number; to_ms: number } | null) {
   const booked = list.filter((d) => isBooked(d, q)).length;
   const conducted = list.filter((d) => isConducted(d, q)).length;
-  return { booked, conducted, not_conducted: booked - conducted, deals: list.length };
+  const not_conducted = list.filter((d) => isNotConducted(d, q)).length;
+  return { booked, conducted, not_conducted, deals: list.length };
 }
 
 /** HubSpot main-team members of the chosen team(s) (the Team member filter narrows to one). */
@@ -326,7 +327,7 @@ export function dealList(prep: Prepared, f: AoFilters, d: DealOpts): DealListRow
   const keep = (x: AoDealRow) =>
     d.kind === "booked" ? isBooked(x, q)
       : d.kind === "conducted" ? isConducted(x, q)
-        : d.kind === "not_conducted" ? isBooked(x, q) && !isConducted(x, q)
+        : d.kind === "not_conducted" ? isNotConducted(x, q)
           : true;
   return toDealRows(prep, base.filter(keep));
 }

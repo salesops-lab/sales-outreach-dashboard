@@ -4,7 +4,7 @@ import {
 } from "../lib/accountsOverview/classify";
 import { prepare, filterAccounts, tally, drillMatch, AoData, toListRow, rolesFromRoster, memberTeam } from "../lib/accountsOverview/compute";
 import { computeView, dealList, ACCOUNT_CARDS } from "../lib/accountsOverview/views";
-import { activityRow, companyRow, dealInWindow, dealRow } from "../lib/accountsOverview/rows";
+import { activityRow, companyRow, dateMs, dealInWindow, dealRow } from "../lib/accountsOverview/rows";
 import { parseRequest, toCsv } from "../lib/accountsOverview/params";
 import { lastQuarter } from "../lib/accountsOverview/ranges";
 import { AoActivityRow, AoCompanyRow, AoContactRow, AoDealRow, AoFilters } from "../lib/accountsOverview/types";
@@ -93,13 +93,14 @@ describe("rows", () => {
     expect(activityRow("note", "2", { hs_timestamp: String(NOW), hs_note_body: "<p>Hello&nbsp;<b>there</b></p>" }, ["5"], [], false)?.subject).toBe("Hello there");
   });
 
-  it("derives demos with the existing event-truth helpers, Auto Pipeline only", () => {
-    const booked = Date.UTC(2026, 8, 1);
-    const done = Date.UTC(2026, 8, 10);
+  it("reads demos from Demo Scheduled for Date / Demo Completed Date as US/Eastern days, Auto Pipeline only", () => {
     const d = dealRow("9", { pipeline: "1001348836", dealstage: "1534611151",
-      hs_v2_date_entered_1534610164: String(booked), hs_v2_date_entered_1534611151: String(done) }, ["5"]);
-    expect(d?.demo_booked_ms).toBe(booked);
-    expect(d?.demo_completed_ms).toBe(done);
+      demo_scheduled_for_date: "2026-09-01", demo_completed_date: "2026-09-10" }, ["5"]);
+    expect(d?.demo_booked_ms).toBe(Date.UTC(2026, 8, 1, 4));    // midnight ET (EDT = UTC−4)
+    expect(d?.demo_completed_ms).toBe(Date.UTC(2026, 8, 10, 4));
+    // a demo dated Jul 1 belongs to Q3 even though UTC midnight is still Jun 30 in ET
+    expect(dateMs(String(Date.UTC(2026, 6, 1)))).toBe(lastQuarter(NOW).fromMs);
+    expect(dealRow("11", { pipeline: "1001348836", demo_scheduled_for_date: null }, [])?.demo_booked_ms).toBeNull();
     expect(dealRow("10", { pipeline: "999" }, ["5"])).toBeNull();
   });
 });
@@ -225,7 +226,7 @@ describe("engine", () => {
     expect(accts.find((a) => a.p.row.hs_id === "2")!.neverContacted).toBe(false);
   });
 
-  it("activity tab: deals follow the people's HubSpot main team; booked → conducted / not conducted", () => {
+  it("activity tab: deals follow their HubSpot Team; booked / conducted / not conducted by date field", () => {
     const Q = { from_ms: NOW - 100 * DAY, to_ms: NOW - 10 * DAY, label: "Q3 2026 (Jul–Sep)" };
     const deal = (o: Partial<AoDealRow>): AoDealRow => ({
       hs_id: "d", stage_key: "discovery_done", deal_owner_id: "ae", sdr_owner_id: "rep1", company_ids: ["1"],
@@ -256,11 +257,11 @@ describe("engine", () => {
       deals: [
         deal({ hs_id: "d1", demo_booked_ms: NOW - 50 * DAY }),                                                     // Neelima: booked, not conducted
         deal({ hs_id: "d2", stage_key: "demo_done", demo_booked_ms: NOW - 200 * DAY, demo_completed_ms: NOW - 20 * DAY }), // booked before Q
-        deal({ hs_id: "d3", sdr_owner_id: "px", deal_owner_id: "y", company_ids: ["4"], team: "Neelima",           // a Prince SDR's deal
+        deal({ hs_id: "d3", sdr_owner_id: "px", deal_owner_id: "y", company_ids: ["4"], team: "Prince",            // HubSpot Team = Prince
           stage_key: "demo_done", demo_booked_ms: NOW - 40 * DAY, demo_completed_ms: NOW - 30 * DAY }),
-        deal({ hs_id: "d4", sdr_owner_id: "x", company_ids: ["4"], stage_key: "in_discussion",                     // SDR in no team → AE's team
+        deal({ hs_id: "d4", sdr_owner_id: "x", company_ids: ["4"], stage_key: "in_discussion",                     // HubSpot Team = Neelima
           demo_booked_ms: NOW - 60 * DAY, demo_completed_ms: NOW - 55 * DAY }),
-        deal({ hs_id: "d5", sdr_owner_id: "x", deal_owner_id: "y", company_ids: ["4"], demo_booked_ms: NOW - 60 * DAY }), // nobody in a team
+        deal({ hs_id: "d5", sdr_owner_id: "x", deal_owner_id: "y", company_ids: ["4"], team: null, demo_booked_ms: NOW - 60 * DAY }), // no team
       ],
     });
     const v = computeView(prep, filters({ country: "all" }), "activity", LIST, NOW) as any;
@@ -269,13 +270,15 @@ describe("engine", () => {
     expect(acc.teams.find((t: any) => t.team === "Neelima")).toMatchObject({ members: 3, total: 3, worked_60: 1, not_worked_60: 1, no_activity: 1 });
     expect(acc.teams.find((t: any) => t.team === "Central").members).toBe(0);
     expect(acc.members.find((m: any) => m.owner_id === "rep1")).toMatchObject({ role: "SDR", total: 3, worked_60: 1, not_worked_60: 1, no_activity: 1 });
-    // team = the people's team, not the company's: d3 sits on a Neelima company but counts for Prince
-    expect(v.deal_teams.find((t: any) => t.team === "Neelima")).toMatchObject({ members: 3, deals: 3, booked: 2, conducted: 1, not_conducted: 1 });
+    // team = the deal's HubSpot Team field, not the company's: d3 counts for Prince
+    // booked = scheduled-for date in Q (d1, d4); conducted = completed date in Q (d2, d4 — d2 was booked earlier);
+    // not conducted = booked in Q with no completed date (d1)
+    expect(v.deal_teams.find((t: any) => t.team === "Neelima")).toMatchObject({ members: 3, deals: 3, booked: 2, conducted: 2, not_conducted: 1 });
     expect(v.deal_teams.find((t: any) => t.team === "Prince")).toMatchObject({ members: 1, deals: 1, booked: 1, conducted: 1, not_conducted: 0 });
     // members: every deal in their name; only real members are listed (no "(not in team)" rows)
     expect(v.deal_members.map((m: any) => m.owner_id).sort()).toEqual(["ae", "px", "rep1", "sh"]);
-    expect(v.deal_members.find((m: any) => m.owner_id === "rep1")).toMatchObject({ booked: 1, conducted: 0, not_conducted: 1, deals: 2 });
-    expect(v.deal_members.find((m: any) => m.owner_id === "ae")).toMatchObject({ booked: 2, conducted: 1, not_conducted: 1, deals: 3, role: "AE" });
+    expect(v.deal_members.find((m: any) => m.owner_id === "rep1")).toMatchObject({ booked: 1, conducted: 1, not_conducted: 1, deals: 2 });
+    expect(v.deal_members.find((m: any) => m.owner_id === "ae")).toMatchObject({ booked: 2, conducted: 2, not_conducted: 1, deals: 3, role: "AE" });
     // pipeline rows = the listed members' deals (d5 has nobody in a team)
     expect(v.deal_rows.map((d: any) => d.id).sort()).toEqual(["d1", "d2", "d3", "d4"]);
     // utilization funnel over the member's own accounts (explicit range here, so not the 3-month default)
@@ -288,7 +291,7 @@ describe("engine", () => {
     // deal lists behind each number
     expect(dealList(prep, filters(), { team: "", owner: "rep1", kind: "booked" }).map((d) => d.id)).toEqual(["d1"]);
     expect(dealList(prep, filters(), { team: "Prince", owner: "", kind: "all" }).map((d) => d.id)).toEqual(["d3"]);
-    expect(dealList(prep, filters({ teams: ["Neelima"] }), { team: "", owner: "", kind: "conducted" }).map((d) => d.id)).toEqual(["d4"]);
+    expect(dealList(prep, filters({ teams: ["Neelima"] }), { team: "", owner: "", kind: "conducted" }).map((d) => d.id)).toEqual(["d4", "d2"]);
     expect(dealList(prep, filters({ teams: ["Neelima"] }), { team: "", owner: "", kind: "not_conducted" }).map((d) => d.id)).toEqual(["d1"]);
     expect(dealList(prep, filters(), { team: "", owner: "ae", kind: "all" }).map((d) => d.id)).toEqual(["d1", "d4", "d2"]);
   });
@@ -329,7 +332,7 @@ describe("quarter", () => {
 
   it("keeps a deal when it was created, booked or demoed inside the window", () => {
     const d = dealRow("9", { pipeline: "1001348836", dealstage: "1534610164", dealname: "Acme", amount: "1200",
-      createdate: "2026-06-20T00:00:00Z", hs_v2_date_entered_1534610164: String(Date.UTC(2026, 6, 3)) }, ["5"], "Prince")!;
+      createdate: "2026-06-20T00:00:00Z", demo_scheduled_for_date: "2026-07-03" }, ["5"], "Prince")!;
     expect(d).toMatchObject({ deal_name: "Acme", amount: 1200, team: "Prince" });
     const q = lastQuarter(NOW);
     expect(dealInWindow(d, q.fromMs, q.toMs)).toBe(true);                // booked Jul 3

@@ -88,12 +88,17 @@ export async function runAccountsOverviewSync(nowMs = Date.now()): Promise<{ ran
     let outOfScope = 0, otherPipeline = 0;
     for (const r of qDeals.records) {
       const cos = (dealCos.get(r.id) ?? []).filter((id) => companies.has(id));
-      const team = cos.length ? companies.get(cos[0])!.team
-        : teamOfOwner(r.properties.sdr_owner ?? null) ?? teamOfOwner(r.properties.hubspot_owner_id ?? null);
+      // The deal's team = its own HubSpot Team field (what a HubSpot "HubSpot Team" filter uses;
+      // user check 2026-10-22: Neelima + Demo Completed in Q3 = 117). A deal whose team is outside
+      // the four counts for no team. Only a deal with NO team falls back to its people's main team.
+      const sdrTeam = teamOfOwner(r.properties.sdr_owner ?? null);
+      const ownerTeam = teamOfOwner(r.properties.hubspot_owner_id ?? null);
+      const team = r.properties.hubspot_team_id ? teamValueById(r.properties.hubspot_team_id) : sdrTeam ?? ownerTeam;
       const row = dealRow(r.id, r.properties, cos, team);
       if (!row) { otherPipeline++; continue; }
       if (!dealInWindow(row, quarter.fromMs, quarter.toMs)) continue;
-      if (!team) { outOfScope++; continue; }
+      // keep deals of the four teams, plus any deal one of their members is on (for member rows)
+      if (!team && !sdrTeam && !ownerTeam) { outOfScope++; continue; }
       deals.push(row);
     }
     recon.push({ check: "quarter_deals", team: null, hubspot: qDeals.total, stored: qDeals.records.length, ok: qDeals.total === qDeals.records.length,

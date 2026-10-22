@@ -1,9 +1,7 @@
 /** Accounts Overview — pure HubSpot record → sdr_ao_* row mappers (no I/O; unit-tested). */
 import { stageKey, AUTO_PIPELINE_ID } from "../../config/deal-stages";
 import { teamValueById } from "../../config/accounts-overview";
-import { stageEventsOf } from "../sync/stage-events";
-import { demoScheduledMs, demoCompletedMs } from "../sync/aggregate";
-import { Deal } from "../sync/types";
+import { etMidnightUtcMs } from "../sync/buckets";
 import { AoActivityRow, AoActivityType, AoCompanyRow, AoContactRow, AoDealRow } from "./types";
 
 type Props = Record<string, string | null>;
@@ -17,6 +15,16 @@ export function msOf(v: string | null | undefined): number | null {
   if (Number.isFinite(n) && n > 0) return n;
   const t = new Date(v).getTime();
   return Number.isFinite(t) && t > 0 ? t : null;
+}
+
+/** A HubSpot DATE property ("2026-09-18", or epoch ms at UTC midnight) → the start of that calendar
+ *  day in US/Eastern, so a demo dated Jul 1 lands in Q3 rather than on Jun 30 evening ET. */
+export function dateMs(v: string | null | undefined): number | null {
+  if (v == null || v === "") return null;
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : (() => { const ms = msOf(v); return ms == null ? null : new Date(ms).toISOString().slice(0, 10); })();
+  if (!iso) return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  return etMidnightUtcMs(y, m, d);
 }
 
 const intOf = (v: string | null | undefined): number | null => {
@@ -81,28 +89,22 @@ export function activityRow(
   };
 }
 
-/** Auto-Pipeline deal → row with demo dates from the EXISTING event-truth helpers. Non-Auto
- *  pipelines return null (the dashboard's demo metrics are Auto-Pipeline-only). `team` is the
- *  deal's team as attributed by the sync (company team, else the SDR's / owner's team). */
+/** Auto-Pipeline deal → row. Non-Auto pipelines return null (demo metrics are Auto-Pipeline-only).
+ *  Demo dates come straight from the deal's HubSpot date properties (user decision 2026-10-22):
+ *  booked = "Demo Scheduled for Date" (`demo_scheduled_for_date`), conducted = "Demo Completed Date"
+ *  (`demo_completed_date`). `team` = the deal's HubSpot Team (sync.ts), else its people's main team. */
 export function dealRow(id: string, p: Props, companyIds: string[], team: string | null = null): AoDealRow | null {
   if (p.pipeline !== AUTO_PIPELINE_ID) return null;
-  const d: Deal = {
-    id, pipeline: p.pipeline, dealstage: p.dealstage ?? null, stageKey: stageKey(p.pipeline, p.dealstage),
-    dealOwnerId: str(p.hubspot_owner_id), sdrOwnerId: str(p.sdr_owner), companyId: companyIds[0] ?? null,
-    contactIds: [], amount: null, demoScheduledForMs: null,
-    discoveryDoneMs: msOf(p.discovery_call_done_stage_date), demoDoneMs: msOf(p.demo_done_stage_date),
-    stageEvents: stageEventsOf(p),
-  };
   return {
-    hs_id: id, stage_key: d.stageKey, deal_owner_id: d.dealOwnerId, sdr_owner_id: d.sdrOwnerId,
+    hs_id: id, stage_key: stageKey(p.pipeline, p.dealstage), deal_owner_id: str(p.hubspot_owner_id), sdr_owner_id: str(p.sdr_owner),
     company_ids: [...new Set(companyIds)].sort(),
-    demo_booked_ms: demoScheduledMs(d), demo_completed_ms: demoCompletedMs(d),
+    demo_booked_ms: dateMs(p.demo_scheduled_for_date), demo_completed_ms: dateMs(p.demo_completed_date),
     deal_name: str(p.dealname), amount: p.amount != null && p.amount !== "" && Number.isFinite(Number(p.amount)) ? Number(p.amount) : null,
     created_ms: msOf(p.createdate), close_ms: msOf(p.closedate), team,
   };
 }
 
-/** True when the deal was created, booked or had its demo done inside [fromMs, toMs). */
+/** True when the deal was created, had its demo scheduled for, or its demo completed inside [fromMs, toMs). */
 export function dealInWindow(d: AoDealRow, fromMs: number, toMs: number): boolean {
   return [d.created_ms, d.demo_booked_ms, d.demo_completed_ms].some((ms) => ms != null && ms >= fromMs && ms < toMs);
 }

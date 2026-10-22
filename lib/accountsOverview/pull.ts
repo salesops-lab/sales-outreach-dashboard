@@ -13,9 +13,8 @@
  *      hs_timestamp (slices auto-split below the 10k cap), then activity → companies / contacts.
  */
 import { hubspotGet, hubspotPost, RATE_LIMIT_DELAY_MS, delay } from "../hubspot/client";
-import { STAGE_DATE_PROPERTIES } from "../sync/stage-events";
 import { AO_COMPANY_PROPERTIES, AO_CONTACT_PROPERTIES, AO_TAM_COUNTRY } from "../../config/accounts-overview";
-import { AUTO_PIPELINE_ID, AUTO_STAGE_BY_ID } from "../../config/deal-stages";
+import { AUTO_PIPELINE_ID } from "../../config/deal-stages";
 import { AoActivityType, AoTam } from "./types";
 
 const SEARCH_CAP = 9800;
@@ -99,19 +98,21 @@ export async function pullTam(): Promise<AoTam & { gd_rows: number }> {
   };
 }
 
-/** Auto-Pipeline deals that were created, had their demo booked, or had their demo done inside
- *  [fromMs, toMs). Only these are stored — not the whole deal history. Callers re-check the dates. */
+/** Auto-Pipeline deals that were created, had their demo scheduled for, or had their demo completed
+ *  inside [fromMs, toMs). Only these are stored — not the whole deal history. The two demo fields are
+ *  DATE properties stored at UTC midnight, so their bounds are widened by a day; callers re-check
+ *  every date exactly (`dealInWindow`). */
 export function searchQuarterDeals(fromMs: number, toMs: number): Promise<{ total: number; records: HsRecord[] }> {
-  // HubSpot allows 18 filters per search (the cursor adds one per group). Stage-entered dates are
-  // Auto-Pipeline stage ids already, so only the createdate group needs the pipeline filter.
-  const inQ = (prop: string): Filter[] => [
-    { propertyName: prop, operator: "GTE", value: String(fromMs) },
-    { propertyName: prop, operator: "LT", value: String(toMs) },
+  const DAY = 86_400_000;
+  const auto: Filter = { propertyName: "pipeline", operator: "EQ", value: AUTO_PIPELINE_ID };
+  const between = (prop: string, a: number, b: number): Filter[] => [
+    { propertyName: prop, operator: "GTE", value: String(a) },
+    { propertyName: prop, operator: "LT", value: String(b) },
   ];
-  const entered = (key: string) => `hs_v2_date_entered_${Object.entries(AUTO_STAGE_BY_ID).find(([, k]) => k === key)![0]}`;
   return searchAll("deals", [
-    [{ propertyName: "pipeline", operator: "EQ", value: AUTO_PIPELINE_ID }, ...inQ("createdate")], inQ(entered("discovery_done")), inQ(entered("demo_done")),
-    inQ(entered("demo_accepted")), inQ(entered("in_discussion")),
+    [auto, ...between("createdate", fromMs, toMs)],
+    [auto, ...between("demo_scheduled_for_date", fromMs - DAY, toMs + DAY)],
+    [auto, ...between("demo_completed_date", fromMs - DAY, toMs + DAY)],
   ], DEAL_PROPS);
 }
 
@@ -209,10 +210,10 @@ export const ACTIVITY_OBJECTS: { type: AoActivityType; object: string; propertie
 export const CONTACT_PROPS = AO_CONTACT_PROPERTIES;
 
 export const DEAL_PROPS = [
-  "pipeline", "dealstage", "hubspot_owner_id", "sdr_owner",
+  "pipeline", "dealstage", "hubspot_owner_id", "sdr_owner", "hubspot_team_id",
   "dealname", "amount", "createdate", "closedate",
-  "discovery_call_done_stage_date", "demo_done_stage_date",
-  ...STAGE_DATE_PROPERTIES,
+  "demo_scheduled_for_date", // "Demo Scheduled for Date" → demos booked
+  "demo_completed_date",     // "Demo Completed Date" → demos conducted
 ];
 
 /** Every owner incl. archived ones (so former reps still resolve to a name), with their HubSpot
