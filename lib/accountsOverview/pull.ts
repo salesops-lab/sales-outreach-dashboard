@@ -217,17 +217,23 @@ export const DEAL_PROPS = [
 
 /** Every owner incl. archived ones (so former reps still resolve to a name), with their HubSpot
  *  team ids — the source of each team's member list. */
-export async function pullAllOwners(): Promise<Record<string, { name: string; active: boolean; teams: string[]; email: string | null }>> {
-  const out: Record<string, { name: string; active: boolean; teams: string[]; email: string | null }> = {};
+/** Every HubSpot owner with their teams. `primary_team` is the user's MAIN team ("Default Team") —
+ *  the one team membership follows; `teams` also lists extra teams. */
+export async function pullAllOwners(): Promise<Record<string, { name: string; active: boolean; teams: string[]; primary_team: string | null; email: string | null }>> {
+  const out: Record<string, { name: string; active: boolean; teams: string[]; primary_team: string | null; email: string | null }> = {};
   for (const archived of [false, true]) {
     let after: string | undefined;
     do {
-      const res = await hubspotGet<{ results: { id: string; firstName?: string; lastName?: string; email?: string; teams?: { id: string | number }[] }[]; paging?: { next?: { after?: string } } }>(
+      const res = await hubspotGet<{ results: { id: string; firstName?: string; lastName?: string; email?: string; teams?: { id: string | number; primary?: boolean }[] }[]; paging?: { next?: { after?: string } } }>(
         `/crm/v3/owners?limit=100&archived=${archived}${after ? `&after=${after}` : ""}`);
       for (const o of res.results) {
         if (out[o.id] && !archived) continue;
         const name = [o.firstName, o.lastName].filter(Boolean).join(" ").trim() || o.email || `Owner ${o.id}`;
-        out[o.id] = { name, active: !archived, teams: (o.teams ?? []).map((t) => String(t.id)), email: o.email?.toLowerCase() ?? null };
+        const primary = (o.teams ?? []).find((t) => t.primary);
+        out[o.id] = {
+          name, active: !archived, teams: (o.teams ?? []).map((t) => String(t.id)),
+          primary_team: primary ? String(primary.id) : null, email: o.email?.toLowerCase() ?? null,
+        };
       }
       after = res.paging?.next?.after;
       await delay(RATE_LIMIT_DELAY_MS);

@@ -41,10 +41,7 @@ export async function runAccountsOverviewSync(nowMs = Date.now()): Promise<{ ran
   try {
     const owners = await pullAllOwners();
     console.log(`[ao] owners: ${Object.keys(owners).length}`);
-    const teamOfOwner = (id: string | null) => {
-      for (const t of (id && owners[id]?.teams) || []) { const v = teamValueById(t); if (v) return v; }
-      return null;
-    };
+    const teamOfOwner = (id: string | null) => (id ? teamValueById(owners[id]?.primary_team) : null);
 
     // 0. HubSpot-wide US TAM (counts only — the overview cards; not stored as rows)
     const recon: AoReconRow[] = [];

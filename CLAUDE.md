@@ -109,7 +109,7 @@ and the Intelligence 2.0 pure logic — signal prompt/coercion/rescan (`intel-si
 the Focus merge incl. revival-window edges (`intel-focus.test.ts`), and the Radar
 ranking incl. the zombie sink (`intel-radar.test.ts`); and the Slack Reports Call Blitz fold
 (`slack-reports.test.ts`); and the Accounts Overview classifiers + engine + params
-(`accounts-overview.test.ts`); and the Admin dashboard-access merge (`access-members.test.ts`); and the Slack report schedule (`slack-schedule.test.ts`) — 29 files / 279 tests in all. Never
+(`accounts-overview.test.ts`); and the Admin dashboard-access merge (`access-members.test.ts`); and the Slack report schedule (`slack-schedule.test.ts`) — 29 files / 280 tests in all. Never
 import a `server-only`-guarded module (`lib/supabase/admin.ts`,
 `lib/callquality/fetch.ts`, `lib/agent/openai|store|runner.ts`, `lib/slackReports/build.ts`/`store.ts` — which
 transitively pulls in `supabaseAdmin` via `lib/spine/store.ts`/`lib/team/load.ts`) from a test — it
@@ -594,8 +594,15 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
 
 - **Team = the company's HubSpot Team** (`hubspot_team_id`, set from the owner's team) — the
   "Team" a user filters on in HubSpot (user-confirmed: Saarthak = 5,502). Team ids live in
-  `config/accounts-overview.ts` (`AO_TEAMS`); team **members** come from HubSpot team membership
-  (`/crm/v3/owners` → teams, stored in the sync state), not the TrackerAI roster. Do NOT use the
+  `config/accounts-overview.ts` (`AO_TEAMS`); team **members** = each HubSpot user's **MAIN team**
+  (`primary` on `/crm/v3/owners` → teams, stored as `owners[id].primary_team`; `memberTeam` in
+  `compute.ts`) — extra teams are ignored (they double-listed Shadman Khalid and a shared CS login).
+  Before a sync has stored `primary_team`, `AO_TEAM_ROSTER` (the user-confirmed mapping, = HubSpot
+  main teams on 2026-10-22, also the source of each person's **role** label) decides, else the only
+  in-scope team. **Deals count for the people's team** (`prep.dealTeam`: the SDR's team, else the
+  deal owner's), NOT the company's — a team's demo numbers are its own members'. Demo funnel per team /
+  member (one cohort): **booked** in the quarter → **conducted** (demo done/accepted/in discussion,
+  any time) + **not conducted**, plus **total deals**; a member's row = every deal in their name. Do NOT use the
   hand-filled `team_accounts` dropdown (first version did; numbers were ~3× too small). Account
   owner, activity owner and contact owner stay separate fields everywhere.
 - **Isolated by design**: the spine only holds tracked reps' companies/activity, so the feature has its
@@ -617,8 +624,7 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   from `components/accountsOverview/tones.ts` (literal classes; one colour per team; `LOOK` constant). The
   60-day worked / not worked / no-activity columns live INSIDE the Accounts tab's team + member tables
   (`workRow`) — not a separate section (would list the same people twice). **Deals & Pipeline** (tab
-  key `activity`): **last completed quarter** demos/deals by team + by stage → team members (booked →
-  SDR via `sdr_owner`, conducted → deal owner) → per-member pipeline blocks with deals grouped by stage
+  key `activity`): **last completed quarter** demos/deals by team + by stage → team members (HubSpot main team; booked → conducted / not conducted / total deals in their name) → per-member pipeline blocks with deals grouped by stage
   (`deal_rows`; lost stages last via `stageRank`) → "Are members using their accounts?" funnel over
   each member's OWN accounts (owned → worked → contacts reached/connected → ICP worked/connected/
   meeting-or-demo → meetings booked/logged → demos booked/done), default last 3 months when no
@@ -628,7 +634,8 @@ Full metric→source map and live data gaps: `docs/accounts-overview.md`. Load-b
   old TAM dashboard's number) — counted at sync time (`pullTam`: Search totals + GD-Name rows for the
   distinct-GD count) into `sdr_ao_sync_state.tam`; never stored as rows. Free-text `country` undercounts.
 - **Deals = last completed quarter only** (`lastQuarter` in `ranges.ts`; `searchQuarterDeals` searches
-  deals directly, so company-less deals still count; team = company team, else SDR's/owner's team).
+  deals directly, so company-less deals still count; the sync keeps a deal when its company is in a team or
+  its SDR's / owner's MAIN team is one of the four; the page then counts it for the people's team, `prep.dealTeam`).
 - **The page reads ONE gzipped file, not the row tables.** Reading ~210k rows (90k contacts, ~96k
   activities, ~22k companies) through PostgREST on every cold start blew the 60 s serverless limit
   and surfaced as a misleading "sync has not run" (2026-10-19). The sync now also uploads every row

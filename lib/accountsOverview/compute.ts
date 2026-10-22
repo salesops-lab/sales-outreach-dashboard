@@ -15,7 +15,7 @@
  *  - Account Owner, Assigned Team, Activity Owner and Contact Owner are never interchanged.
  */
 import { isConnected, MEETING_SCHEDULED_GUID, MEETING_RESCHEDULED_GUID, dispositionLabel } from "../../config/dispositions";
-import { AO_DEEP_INACTIVE_DAYS, AO_INACTIVE_DAYS, AO_TEAMS, teamValueById } from "../../config/accounts-overview";
+import { AO_DEEP_INACTIVE_DAYS, AO_INACTIVE_DAYS, AO_TEAM_ROSTER, AO_TEAMS, AoRole, teamValueById } from "../../config/accounts-overview";
 import {
   classifyAccountType, companyIcp, companyStatus, contactIcp, daysSince, gdKeyOf, gdNameOf,
   normalizeCountry, rooftopStatus, TypeVerdict,
@@ -35,7 +35,8 @@ export interface AoData {
   roles?: Record<string, MemberRole>;
 }
 
-export type MemberRole = "Manager" | "SDR" | "AE";
+/** Roster roles (Manager / SDR / AE) plus the labels in the confirmed team mapping. */
+export type MemberRole = "Manager" | "SDR" | "AE" | AoRole;
 
 /** Role per HubSpot owner from the TrackerAI roster: AE-pod leads and SDR managers/TLs are
  *  "Manager", other roster members their SDR/AE type. Owners not in the roster get no role. */
@@ -75,11 +76,27 @@ export interface Prepared {
   byId: Map<string, PCompany>;
   contactById: Map<string, AoContactRow>;
   ownerName: (id: string | null | undefined) => string;
-  /** The owner's team among the four (from HubSpot team membership), or null. */
+  /** The owner's team among the four = their HubSpot MAIN team (see `memberTeam`), or null. */
   teamOfOwner: (id: string | null | undefined) => string | null;
-  /** All of the owner's teams among the four (an owner can sit in more than one). */
+  /** [teamOfOwner] or [] — kept as a list for callers that test membership. */
   teamsOfOwner: (id: string | null | undefined) => string[];
   roleOf: (id: string | null | undefined) => MemberRole | null;
+  /** A deal's team = the team of the SDR who booked it, else of the deal owner (AE), else null. */
+  dealTeam: (d: AoDealRow) => string | null;
+}
+
+const ROSTER_BY_EMAIL = new Map(AO_TEAM_ROSTER.map((r) => [r.email.toLowerCase(), r]));
+
+/** Which of the four teams a HubSpot owner belongs to: their HubSpot MAIN team when the sync stored
+ *  it; otherwise (older sync) the confirmed mapping by email; otherwise their only in-scope team.
+ *  Extra teams never count — they double-listed Shadman Khalid and a shared CS login. */
+export function memberTeam(o: AoSyncState["owners"][string] | undefined): string | null {
+  if (!o) return null;
+  if (o.primary_team !== undefined) return teamValueById(o.primary_team);
+  const listed = o.email ? ROSTER_BY_EMAIL.get(o.email.toLowerCase()) : undefined;
+  if (listed) return listed.team;
+  const inScope = [...new Set((o.teams ?? []).map(teamValueById).filter(Boolean) as string[])];
+  return inScope.length === 1 ? inScope[0] : null;
 }
 
 const isCall = (a: AoActivityRow) => a.type === "call" && (a.direction ?? "").toUpperCase() === "OUTBOUND";
@@ -117,12 +134,17 @@ export function prepare(data: AoData): Prepared {
   });
   const owners = data.state.owners ?? {};
   const ownerName = (id: string | null | undefined) => (id ? owners[id]?.name || `Owner ${id}` : "—");
-  const teamsOfOwner = (id: string | null | undefined) =>
-    [...new Set(((id && owners[id]?.teams) || []).map(teamValueById).filter(Boolean) as string[])];
-  const teamOfOwner = (id: string | null | undefined) => teamsOfOwner(id)[0] ?? null;
+  const teamOfOwner = (id: string | null | undefined) => (id ? memberTeam(owners[id]) : null);
+  const teamsOfOwner = (id: string | null | undefined) => { const t = teamOfOwner(id); return t ? [t] : []; };
   const roles = data.roles ?? {};
-  const roleOf = (id: string | null | undefined) => (id ? roles[id] ?? null : null);
-  return { data, companies, byId: new Map(companies.map((c) => [c.row.hs_id, c])), contactById, ownerName, teamOfOwner, teamsOfOwner, roleOf };
+  // Role: the confirmed mapping (by HubSpot email) first, then the TrackerAI roster.
+  const roleOf = (id: string | null | undefined): MemberRole | null => {
+    if (!id) return null;
+    const email = owners[id]?.email;
+    return (email && ROSTER_BY_EMAIL.get(email.toLowerCase())?.role) || roles[id] || null;
+  };
+  const dealTeam = (d: AoDealRow) => teamOfOwner(d.sdr_owner_id) ?? teamOfOwner(d.deal_owner_id);
+  return { data, companies, byId: new Map(companies.map((c) => [c.row.hs_id, c])), contactById, ownerName, teamOfOwner, teamsOfOwner, roleOf, dealTeam };
 }
 
 // ── per-account calc for the reporting period ────────────────────────────────

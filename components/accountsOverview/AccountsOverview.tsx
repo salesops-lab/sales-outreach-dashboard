@@ -77,7 +77,10 @@ const DRILL_LABEL: Record<string, string> = {
   contacted: "Contacted in the date range", not_contacted: "Not contacted in the date range",
   "icp:yes": "ICP accounts", icp_contacted: "ICP accounts contacted",
 };
-const ROLE_CLS: Record<string, string> = { Manager: "bg-good-weak text-good", SDR: "bg-primary/10 text-primary", AE: "bg-warm-weak text-warm" };
+const ROLE_CLS: Record<string, string> = {
+  Manager: "bg-good-weak text-good", "Team Lead": "bg-good-weak text-good", "Team Lead / AE": "bg-good-weak text-good",
+  SDR: "bg-primary/10 text-primary", "SDR-TL": "bg-primary/10 text-primary", AE: "bg-warm-weak text-warm",
+};
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -622,20 +625,23 @@ function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, open
       <SectionTitle icon={CalendarCheck} tone="sky" sub="Only last-quarter deals are stored. Deals follow the Team and Team member filters. Click a number for the deal details.">
         Demos &amp; deals — {qLabel}
       </SectionTitle>
-      <div className="grid grid-cols-3 gap-2.5">
-        <Stat tone="sky" label="Demos booked" value={fmt(data.deal_totals.booked)} sub="Deal reached Discovery Call Done" onClick={() => showDeals(f.team, f.owner, "booked", `Demos booked — ${teamLabel}`)} />
-        <Stat tone="emerald" label="Demos conducted" value={fmt(data.deal_totals.conducted)} sub="Deal reached Demo Done / Accepted / In Discussion" onClick={() => showDeals(f.team, f.owner, "conducted", `Demos conducted — ${teamLabel}`)} />
-        <Stat tone="violet" label="Deals in the quarter" value={fmt(data.deal_totals.deals)} sub="Created, booked or demo done in the quarter" onClick={() => showDeals(f.team, f.owner, "all", `All deals — ${teamLabel}`)} />
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+        <Stat tone="sky" label="Demos booked" value={fmt(data.deal_totals.booked)} sub={`Reached Discovery Call Done in ${qLabel}`} onClick={() => showDeals(f.team, f.owner, "booked", `Demos booked — ${teamLabel}`)} />
+        <Stat tone="emerald" label="Conducted" value={fmt(data.deal_totals.conducted)} sub="Of those booked: demo done / accepted / in discussion" onClick={() => showDeals(f.team, f.owner, "conducted", `Demos conducted — ${teamLabel}`)} />
+        <Stat tone="rose" label="Not conducted" value={fmt(data.deal_totals.not_conducted)} sub="Of those booked: no demo yet (no-show, pending, dropped)" onClick={() => showDeals(f.team, f.owner, "not_conducted", `Demos not conducted — ${teamLabel}`)} />
+        <Stat tone="violet" label="Total deals" value={fmt(data.deal_totals.deals)} sub="Created, booked or demo done in the quarter" onClick={() => showDeals(f.team, f.owner, "all", `All deals — ${teamLabel}`)} />
       </div>
       <div className="mt-3 grid gap-3 xl:grid-cols-2">
         <Card title="By team">
           <table className="w-full text-xs">
-            <thead className={THEAD}><tr><TH>Team</TH><TH right>Demos booked</TH><TH right>Demos conducted</TH><TH right>Deals</TH></tr></thead>
+            <thead className={THEAD}><tr><TH>Team</TH><TH right>Members</TH><TH right>Demos booked</TH><TH right>Conducted</TH><TH right>Not conducted</TH><TH right>Total deals</TH></tr></thead>
             <tbody>{data.deal_teams.map((t: any) => (
               <tr key={t.team} className={cn("border-b border-line/60", f.team === t.team && cn("font-semibold", TONE[teamTone(t.team)].soft))}>
                 <td className="px-2 py-1"><TeamName team={t.team} label={t.label} onClick={() => onTeam(t.team)} /></td>
-                <td className="px-2 py-1 text-right"><Num v={t.booked} onClick={() => showDeals(t.team, "", "booked", `Demos booked — ${t.label}`)} /></td>
+                <td className="px-2 py-1 text-right font-mono">{fmt(t.members)}</td>
+                <td className="px-2 py-1 text-right"><Num v={t.booked} strong onClick={() => showDeals(t.team, "", "booked", `Demos booked — ${t.label}`)} /></td>
                 <td className="px-2 py-1 text-right"><Num v={t.conducted} onClick={() => showDeals(t.team, "", "conducted", `Demos conducted — ${t.label}`)} /></td>
+                <td className="px-2 py-1 text-right"><Num v={t.not_conducted} onClick={() => showDeals(t.team, "", "not_conducted", `Demos not conducted — ${t.label}`)} /></td>
                 <td className="px-2 py-1 text-right"><Num v={t.deals} onClick={() => showDeals(t.team, "", "all", `All deals — ${t.label}`)} /></td>
               </tr>
             ))}</tbody>
@@ -667,23 +673,24 @@ function ActivityTab({ data, f, qs, filterBar, dealSel, setDealSel, onTeam, open
         <Card title={`Members — ${teamLabel}`}>
           <div className="max-h-[420px] overflow-auto">
             <table className="w-full text-xs">
-              <thead className={THEAD}><tr><TH>Member</TH><TH>Role</TH><TH right>Demos booked</TH><TH right>Demos conducted</TH><TH right>Deals in their name</TH></tr></thead>
+              <thead className={THEAD}><tr><TH>Member</TH><TH>Role</TH><TH right>Demos booked</TH><TH right>Conducted</TH><TH right>Not conducted</TH><TH right>Total deals</TH></tr></thead>
               <tbody>{data.deal_members.map((m: any) => (
                 <tr key={m.owner_id} className="border-b border-line/60">
-                  <td className="px-2 py-1">
-                    <TeamName team={m.team} label={m.name} onClick={m.deals ? () => focusMember(m.owner_id) : undefined} />
-                    {!m.in_team && <span className="ml-1 text-[10px] text-ink-subtle">(not in team)</span>}
-                  </td>
+                  <td className="px-2 py-1"><TeamName team={m.team} label={m.name} onClick={m.deals ? () => focusMember(m.owner_id) : undefined} /></td>
                   <td className="px-2 py-1"><RoleChip role={m.role} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={m.booked} onClick={() => showDeals(f.team, m.owner_id, "booked", `Demos booked by ${m.name}`)} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={m.conducted} onClick={() => showDeals(f.team, m.owner_id, "conducted", `Demos conducted by ${m.name}`)} /></td>
-                  <td className="px-2 py-1 text-right"><Num v={m.deals} strong onClick={() => focusMember(m.owner_id)} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.booked} strong onClick={() => showDeals("", m.owner_id, "booked", `Demos booked — ${m.name}`)} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.conducted} onClick={() => showDeals("", m.owner_id, "conducted", `Demos conducted — ${m.name}`)} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.not_conducted} onClick={() => showDeals("", m.owner_id, "not_conducted", `Demos not conducted — ${m.name}`)} /></td>
+                  <td className="px-2 py-1 text-right"><Num v={m.deals} onClick={() => focusMember(m.owner_id)} /></td>
                 </tr>
               ))}
-              {data.deal_members.length === 0 && <tr><td colSpan={5} className="px-2 py-6 text-center text-ink-subtle">No deals in the quarter for these filters.</td></tr>}</tbody>
+              {data.deal_members.length === 0 && <tr><td colSpan={6} className="px-2 py-6 text-center text-ink-subtle">No members in this team.</td></tr>}</tbody>
             </table>
           </div>
-          <p className="mt-2 text-[11px] text-ink-subtle">Demos booked are credited to the deal&apos;s SDR (SDR Owner); demos conducted to the deal owner (the AE). Deals in their name = either.</p>
+          <p className="mt-2 text-[11px] text-ink-subtle">
+            Members = each person&apos;s HubSpot main team. A team&apos;s deals = deals booked by its SDRs (or, when the SDR is in none of the four teams, owned by its AEs).
+            A member&apos;s numbers = every deal in their name (as SDR or deal owner). Conducted + Not conducted = Demos booked.
+          </p>
         </Card>
       </div>
 
